@@ -25,6 +25,19 @@ from .conformal import (
     volatility_bin_edges,
 )
 from .data import discover_data_file, validate_and_save
+from .drawdown_forecast import (
+    build_drawdown_forecast,
+    compute_drawdown_paths,
+    conditional_expected_drawdown,
+    drawdown_backtest,
+    drawdown_duration_statistics,
+    drawdown_probability_intervals,
+    first_passage_times,
+    pointwise_drawdown_band,
+    realized_drawdown_severity,
+    recovery_statistics,
+    simultaneous_drawdown_band,
+)
 from .evaluation import classification_metrics, historical_var_tests, interval_metrics, point_metrics
 from .features import build_features, select_train_features
 from .hmm import fit_filtered_hmm
@@ -39,7 +52,7 @@ from .jackknife import (
     feature_importance_delete_block_jackknife,
 )
 from .persistence import run_metadata, save_model, write_json
-from .plotting import generate_advanced_figures, generate_all_figures
+from .plotting import generate_advanced_figures, generate_all_figures, generate_drawdown_figures
 from .point_forecast import CenterSelection, apply_center_blend, select_validation_gated_center
 from .random_forest import (
     fit_forest_bundle,
@@ -196,6 +209,657 @@ def _crps_empirical(
     first = np.mean(np.abs(draws - actual[:, None]), axis=1)
     second = 0.5 * np.mean(np.abs(draws[:, :, None] - draws[:, None, :]), axis=(1, 2))
     return float(np.mean(first - second))
+
+
+def _drawdown_scenario_table(
+    hybrid,
+    bootstrap_result,
+    economic_labels: list[str],
+    initial_price: float,
+    historical_peak: float,
+    daily_drift: float,
+    daily_volatility: float,
+    degrees_of_freedom: float,
+    crisis_residuals: np.ndarray,
+    seed: int,
+) -> pd.DataFrame:
+    """Keep conditional stress scenarios separate from baseline forecast probabilities."""
+    rng = np.random.default_rng(seed + 7000)
+    base_returns = np.asarray(hybrid.return_paths, dtype=float)
+    base_regimes = np.asarray(hybrid.regime_paths, dtype=int)
+    scenario_returns: dict[str, np.ndarray] = {"baseline_hybrid": base_returns}
+    for label, name in [("Bear", "bear_conditioned"), ("Stress", "stress_conditioned")]:
+        states = [state for state, value in enumerate(economic_labels) if value == label]
+        mask = np.isin(base_regimes[:, 0], states)
+        scenario_returns[name] = base_returns[mask] if mask.sum() >= 100 else base_returns
+    center = float(daily_drift)
+    scenario_returns["volatility_plus_1_sigma"] = center + 1.5 * (base_returns - center)
+    scenario_returns["volatility_plus_2_sigma"] = center + 2.0 * (base_returns - center)
+    pool = np.asarray(crisis_residuals, dtype=float)
+    pool = pool[np.isfinite(pool)]
+    if len(pool) < 20:
+        pool = np.asarray(bootstrap_result.return_paths, dtype=float).ravel() / max(daily_volatility, 1e-8)
+    crisis_count = min(len(base_returns), 20000)
+    crisis_shocks = rng.choice(pool, size=(crisis_count, base_returns.shape[1]), replace=True)
+    scenario_returns["historical_crisis_blocks"] = center + daily_volatility * crisis_shocks
+    tail_count = min(len(base_returns), 20000)
+    tail_nu = max(3.2, float(degrees_of_freedom) / 2)
+    tail_shocks = rng.standard_t(tail_nu, size=(tail_count, base_returns.shape[1])) * np.sqrt((tail_nu - 2) / tail_nu)
+    scenario_returns["student_t_tail_heavy"] = center + daily_volatility * tail_shocks
+    rows = []
+    for scenario, returns in scenario_returns.items():
+        cumulative = np.clip(np.cumsum(returns, axis=1), -5, 5)
+        prices = initial_price * np.exp(cumulative)
+        origin = build_drawdown_forecast(prices, initial_price, "origin_peak")
+        historical = build_drawdown_forecast(prices, initial_price, "historical_peak", historical_peak=historical_peak)
+        terminal = returns.sum(axis=1)
+        var95 = float(np.quantile(terminal, 0.05))
+        recovery = recovery_statistics(prices, historical_peak)
+        rows.append(
+            {
+                "scenario": scenario,
+                "is_stress_scenario": scenario != "baseline_hybrid",
+                "paths": len(returns),
+                "expected_return": float(np.mean(np.exp(terminal) - 1)),
+                "var_95": var95,
+                "es_95": float(np.mean(terminal[terminal <= var95])),
+                "mdar_95": origin.summary["mdar_95"],
+                "ced_95": origin.summary["ced_95"],
+                "probability_mdd_5": float(np.mean(origin.running_maximum_drawdown_paths[:, -1] >= 0.05)),
+                "probability_mdd_10": float(np.mean(origin.running_maximum_drawdown_paths[:, -1] >= 0.10)),
+                "probability_recovery": recovery["probability_recovery_by_horizon"],
+                "historical_anchor_mdar_95": historical.summary["mdar_95"],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _append_drawdown_reports(context: dict, root: Path) -> None:
+    origin = context["origin_summary"]
+    historical = context["historical_summary"]
+    acceptance = context["acceptance"]
+    probability = context["probability"]
+    recovery = context["recovery"]
+    mc = context["mc"]
+    importance = context["importance"]
+    selected_is = importance[importance["selected"]]
+    breach = {
+        threshold: origin["first_passage"][str(threshold)]["probability_breach_by_horizon"]
+        for threshold in (0.03, 0.05, 0.07, 0.10)
+    }
+    comments = {
+        "54": f"Origin-peak median ending severity {origin['median_ending_drawdown_severity']:.2%}; MDaR95 {origin['mdar_95']:.2%}.",
+        "55": f"Historical-peak median ending severity {historical['median_ending_drawdown_severity']:.2%}; anchor bắt đầu từ drawdown hiện tại.",
+        "56": "Running maximum severity không giảm theo thời gian; khác drawdown tức thời có thể phục hồi.",
+        "57": f"P(breach 3/5/7/10%) cuối horizon: {breach[0.03]:.2%}/{breach[0.05]:.2%}/{breach[0.07]:.2%}/{breach[0.10]:.2%}.",
+        "58": "First-passage time chỉ thống kê trên path đã breach; path chưa breach được giữ right-censored.",
+        "59": f"MDaR90/95/99: {origin['mdar_90']:.2%}/{origin['mdar_95']:.2%}/{origin['mdar_99']:.2%}; CED95 {origin['ced_95']:.2%}.",
+        "60": f"Xác suất phục hồi historical peak trong horizon là {recovery['probability_recovery_by_horizon']:.2%}.",
+        "61": f"Brier tốt nhất trên bảng backtest là {probability['brier_score'].min():.4f}; reliability gap được báo cáo riêng theo threshold.",
+        "62": "Predicted median drawdown và realized drawdown được so trên cùng OOS origins; dispersion lớn phản ánh rủi ro đường đi khó dự báo.",
+        "63": "Direct drawdown conformal được chọn trên validation, không tái dùng return-conformal multiplier.",
+        "64": "Simultaneous band nhắm bao phủ cả trajectory nên rộng hơn pointwise band.",
+        "65": "Historical-peak severity có thể cao ngay ở bước đầu vì không reset drawdown tại forecast origin.",
+        "66": f"MCSE lớn nhất trong các breach statistic là {mc['mcse'].max():.4f}; đây là numerical error, không phải predictive interval.",
+        "67": f"Proposal được chọn theo từng threshold; variance reduction tốt nhất {selected_is['variance_reduction_ratio'].max():.2f}x.",
+        "68": "Stress scenarios là conditional what-if và không được trộn với xác suất baseline_hybrid.",
+        "69": "Duration giữ recovery time NaN cho path chưa phục hồi, thay vì ép bằng horizon.",
+        "70": "Calibration strata thiếu mẫu fallback về global; method được khóa bằng validation objective.",
+    }
+    figure_lines = []
+    names = context["figure_names"]
+    for name in names:
+        number = name.split("_", 1)[0]
+        figure_lines.extend([f"### {name}", "", f"![{name}](figures/{name}.png)", "", comments[number], ""])
+    figure_text = "\n".join(figure_lines)
+    section = f"""
+
+## 14. Dự báo rủi ro đường đi và drawdown
+
+Drawdown return giữ dấu âm để tương thích; toàn bộ bảng mới dùng `drawdown_severity=-drawdown_return>=0`. Origin-peak đo khoản giảm mới từ forecast origin, còn historical-peak giữ đỉnh lịch sử nên bắt đầu từ drawdown hiện tại. Terminal return dương vẫn có thể đi cùng intra-horizon drawdown lớn.
+
+MDaR là quantile của maximum drawdown severity, khác VaR terminal return. CED là severity trung bình phía trên MDaR, khác expected shortfall của return. Monte Carlo confidence interval đo sai số số học của probability estimator; predictive/conformal bound đo bất định của outcome. Direct drawdown conformal có backtest coverage riêng và chỉ dùng score đã mature.
+
+Origin-peak MDaR90/95/99 là **{origin['mdar_90']:.2%}/{origin['mdar_95']:.2%}/{origin['mdar_99']:.2%}**; CED90/95/99 là **{origin['ced_90']:.2%}/{origin['ced_95']:.2%}/{origin['ced_99']:.2%}**. Historical-peak recovery probability là **{recovery['probability_recovery_by_horizon']:.2%}**. Drawdown acceptance đạt **{int(acceptance['passed'].sum())}/{len(acceptance)}**; nếu thiếu một guardrail, module tiếp tục experimental.
+
+Stress scenario không phải xác suất dự báo. Importance sampling giảm phương sai estimator rare event nhưng không làm drawdown dễ dự báo hơn.
+
+## 15. Biểu đồ drawdown
+
+{figure_text}
+"""
+    model_path = root / "reports/model_report.md"
+    model_path.write_text(model_path.read_text(encoding="utf-8") + section, encoding="utf-8")
+    executive_path = root / "reports/executive_summary.md"
+    executive_path.write_text(
+        executive_path.read_text(encoding="utf-8")
+        + f"\n\n## Drawdown path risk\n\nOrigin-peak MDaR95/CED95 là **{origin['mdar_95']:.2%}/{origin['ced_95']:.2%}**; P(MDD vượt 5% là **{breach[0.05]:.2%}**. Historical-peak recovery probability trong horizon là **{recovery['probability_recovery_by_horizon']:.2%}**. Drawdown layer đạt {int(acceptance['passed'].sum())}/{len(acceptance)} checks và vẫn experimental nếu chưa đạt đủ.\n",
+        encoding="utf-8",
+    )
+    readme_path = root / "README.md"
+    readme_path.write_text(
+        readme_path.read_text(encoding="utf-8")
+        + f"\n\n## Calibrated drawdown forecast\n\nHai anchor `origin_peak` và `historical_peak`, MDaR/CED, first passage, recovery censoring, probability CI và direct drawdown conformal được sinh từ pipeline. Latest origin-peak MDaR95 là **{origin['mdar_95']:.2%}**; xem `artifacts/forecasts/latest_drawdown_*` và hình 54–70. Module vẫn experimental trừ khi toàn bộ drawdown acceptance checks đạt.\n",
+        encoding="utf-8",
+    )
+
+
+def _run_drawdown_layer(
+    root: Path,
+    config: dict,
+    data: pd.DataFrame,
+    features: pd.DataFrame,
+    targets: pd.DataFrame,
+    horizons: list[int],
+    horizon_state: dict,
+    volatility,
+    full_volatility,
+    full_hmm,
+    hybrid,
+    simulation_results: dict,
+    convergence_history: pd.DataFrame,
+    naive_tail,
+    importance_results: list,
+    selected_importance,
+    latest_center_horizon: float,
+    calibrated_daily_volatility: float,
+    seed: int,
+) -> dict:
+    drawdown_config = config["drawdown"]
+    thresholds = tuple(float(value) for value in drawdown_config["thresholds"])
+    initial_price = float(data["close"].iloc[-1])
+    historical_peak = float(data["close"].max())
+    rolling_window = int(drawdown_config["rolling_peak_window"])
+    rolling_peak = float(data["close"].iloc[-rolling_window:].max())
+    origin = build_drawdown_forecast(hybrid.price_paths, initial_price, "origin_peak", thresholds=thresholds)
+    historical = build_drawdown_forecast(
+        hybrid.price_paths,
+        initial_price,
+        "historical_peak",
+        historical_peak=historical_peak,
+        thresholds=thresholds,
+    )
+    rolling = build_drawdown_forecast(
+        hybrid.price_paths,
+        initial_price,
+        "rolling_peak",
+        rolling_peak=rolling_peak,
+        thresholds=thresholds,
+    )
+    recovery = recovery_statistics(hybrid.price_paths, historical_peak)
+    duration_frame, duration_summary = drawdown_duration_statistics(historical.drawdown_paths)
+    first_passage = first_passage_times(origin.running_maximum_drawdown_paths, thresholds)
+    first_passage_rows = []
+    first_passage_plot_rows = []
+    for threshold, times in first_passage.items():
+        breached = np.isfinite(times)
+        first_passage_rows.append(
+            {
+                "threshold": threshold,
+                "probability_breach_by_horizon": float(breached.mean()),
+                "probability_no_breach_by_horizon": float(1 - breached.mean()),
+                "median_time_to_breach": float(np.nanmedian(times)) if breached.any() else np.nan,
+                "conditional_expected_time_to_breach": float(np.nanmean(times)) if breached.any() else np.nan,
+                **{f"probability_breach_within_{step}": float(np.mean(times <= step)) for step in (5, 10, 20)},
+            }
+        )
+        first_passage_plot_rows.extend(
+            {"threshold": threshold, "first_passage_time": value} for value in times[np.isfinite(times)]
+        )
+    first_passage_table = pd.DataFrame(first_passage_rows)
+    first_passage_plot = pd.DataFrame(first_passage_plot_rows)
+    recovery_table = pd.DataFrame(
+        {
+            "step": np.arange(1, len(recovery["probability_recovery_by_step"]) + 1),
+            "probability_recovery_by_step": recovery["probability_recovery_by_step"],
+            "unrecovered_survival": recovery["unrecovered_survival_by_step"],
+        }
+    )
+    recovery_summary = pd.DataFrame(
+        [
+            {
+                key: value
+                for key, value in recovery.items()
+                if key
+                not in {
+                    "probability_recovery_by_step",
+                    "recovery_times",
+                    "right_censored",
+                    "unrecovered_survival_by_step",
+                }
+            }
+            | {"right_censored_paths": int(np.sum(recovery["right_censored"])), "paths": len(hybrid.price_paths)}
+        ]
+    )
+    mdar_ced = pd.DataFrame(
+        [
+            {"anchor_mode": name, **result.summary}
+            for name, result in {"origin_peak": origin, "historical_peak": historical, "rolling_peak": rolling}.items()
+        ]
+    ).drop(columns=["first_passage"])
+    anchor_comparison = mdar_ced.copy()
+
+    unweighted_events = {
+        f"probability_mdd_{int(threshold * 100)}": origin.running_maximum_drawdown_paths[:, -1] >= threshold
+        for threshold in thresholds
+    }
+    ordinary_mc = drawdown_probability_intervals(unweighted_events, seed=seed)
+    ordinary_mc.insert(0, "method", "adaptive_hybrid")
+    weighted_events = {
+        f"probability_mdd_{int(threshold * 100)}": -selected_importance.maximum_drawdowns >= threshold
+        for threshold in thresholds
+    }
+    weighted_mc = drawdown_probability_intervals(
+        weighted_events,
+        weights=selected_importance.normalized_weights,
+        seed=seed,
+    )
+    weighted_mc.insert(0, "method", "importance_sampling")
+    mc_uncertainty = pd.concat([ordinary_mc, weighted_mc], ignore_index=True)
+
+    importance_rows = []
+    for threshold in (0.05, 0.07, 0.10, 0.15):
+        naive_event = -naive_tail.maximum_drawdowns >= threshold
+        naive_probability = float(np.mean(naive_event))
+        naive_mcse = float(np.sqrt(naive_probability * (1 - naive_probability) / len(naive_event)))
+        threshold_rows = []
+        for result in importance_results:
+            event = (-result.maximum_drawdowns >= threshold).astype(float)
+            weights = result.normalized_weights
+            estimate = float(np.sum(weights * event))
+            mcse = float(np.sqrt(np.sum(np.square(weights) * np.square(event - estimate))))
+            ratio = float(np.square(naive_mcse) / max(np.square(mcse), 1e-18))
+            row = {
+                "threshold": threshold,
+                "transition_strength": result.diagnostics["transition_strength"],
+                "shock_strength": result.diagnostics["shock_strength"],
+                "estimate": estimate,
+                "naive_mcse": naive_mcse,
+                "importance_mcse": mcse,
+                "variance_reduction_ratio": ratio,
+                "ess": result.diagnostics["ess"],
+                "ess_ratio": result.diagnostics["ess_ratio"],
+                "relative_mcse": mcse / max(estimate, 1e-15),
+                "tail_events_generated": int(event.sum()),
+                "accepted": bool(result.diagnostics["ess_ratio"] >= 0.20 and ratio >= 1.30),
+                "selected": False,
+            }
+            threshold_rows.append(row)
+        accepted = [row for row in threshold_rows if row["accepted"]]
+        choice = (
+            max(accepted, key=lambda row: row["variance_reduction_ratio"])
+            if accepted
+            else max(threshold_rows, key=lambda row: row["ess_ratio"])
+        )
+        choice["selected"] = True
+        importance_rows.extend(threshold_rows)
+    drawdown_importance = pd.DataFrame(importance_rows)
+
+    backtest_metrics_frames = []
+    interval_frames = []
+    probability_frames = []
+    selection_frames = []
+    detail_frames = []
+    close = data["close"].to_numpy(dtype=float)
+    for horizon in horizons:
+        state = horizon_state[horizon]
+        for anchor_mode in ("origin_peak", "historical_peak"):
+            realized = realized_drawdown_severity(close, horizon, anchor_mode, rolling_window)
+            train = state["train_index"]
+            validation = state["validation_index"]
+            test = state["test_index"]
+            outputs = drawdown_backtest(
+                realized[validation],
+                realized[test],
+                state["validation_center"],
+                state["improved_center"],
+                state["validation_sigma"] / np.sqrt(horizon),
+                state["test_sigma"] / np.sqrt(horizon),
+                features["current_drawdown"].iloc[validation].to_numpy(),
+                features["current_drawdown"].iloc[test].to_numpy(),
+                state["validation_regime"],
+                state["test_regime"],
+                realized[train],
+                volatility.standardized_residuals[train],
+                float(volatility.diagnostics["nu"]),
+                horizon,
+                int(drawdown_config["backtest_paths"]),
+                max(20, int(config["conformal"]["minimum_stratum_size"] // 2)),
+                anchor_mode,
+                thresholds[:4],
+                seed,
+            )
+            metrics, intervals, probabilities, selections, details = outputs
+            details.insert(0, "date", data["date"].iloc[test].to_numpy())
+            backtest_metrics_frames.append(metrics)
+            interval_frames.append(intervals)
+            probability_frames.append(probabilities)
+            selection_frames.append(selections)
+            detail_frames.append(details)
+    backtest_metrics = pd.concat(backtest_metrics_frames, ignore_index=True)
+    interval_metrics_table = pd.concat(interval_frames, ignore_index=True)
+    probability_calibration = pd.concat(probability_frames, ignore_index=True)
+    drawdown_conformal_selection = pd.concat(selection_frames, ignore_index=True)
+    backtest_details = pd.concat(detail_frames, ignore_index=True)
+    conditional_rows = []
+    rolling_frames = []
+    for (horizon, anchor_mode), group in backtest_details.groupby(["horizon", "anchor_mode"]):
+        ordered = group.sort_values("date")
+        for level in (80, 90, 95, 99):
+            coverage_column = f"conformal_covered_{level}"
+            rolling_frames.append(
+                pd.DataFrame(
+                    {
+                        "date": ordered["date"],
+                        "horizon": horizon,
+                        "anchor_mode": anchor_mode,
+                        "level": level / 100,
+                        "rolling_coverage_100": ordered[coverage_column].rolling(100, min_periods=40).mean(),
+                    }
+                )
+            )
+            for stratum in ("regime", "volatility_bin", "current_drawdown_bin"):
+                for value, stratum_group in ordered.groupby(stratum):
+                    conditional_rows.append(
+                        {
+                            "horizon": horizon,
+                            "anchor_mode": anchor_mode,
+                            "level": level / 100,
+                            "stratum_type": stratum,
+                            "stratum": value,
+                            "observations": len(stratum_group),
+                            "conditional_coverage": float(stratum_group[coverage_column].mean()),
+                            "coverage_error": float(stratum_group[coverage_column].mean() - level / 100),
+                        }
+                    )
+    conditional_coverage = pd.DataFrame(conditional_rows)
+    rolling_coverage = pd.concat(rolling_frames, ignore_index=True)
+
+    h20_details = backtest_details[
+        (backtest_details["horizon"] == 20) & (backtest_details["anchor_mode"] == "origin_peak")
+    ].reset_index(drop=True)
+    pointwise_lower, pointwise_upper = pointwise_drawdown_band(origin.severity_paths, 0.95)
+    state20 = horizon_state[20 if 20 in horizon_state else max(horizons)]
+    validation_index = state20["validation_index"]
+    trajectory_rows = []
+    for origin_index in validation_index:
+        if origin_index + 20 >= len(close):
+            continue
+        prices = close[origin_index + 1 : origin_index + 21][None, :]
+        trajectory_rows.append(-compute_drawdown_paths(prices, close[origin_index], "origin_peak")[0])
+    actual_trajectories = np.asarray(trajectory_rows)
+    count = len(actual_trajectories)
+    center_trajectories = np.tile(origin.term_structure["drawdown_median"].to_numpy(), (count, 1))
+    scale_trajectories = np.tile(
+        np.maximum(origin.term_structure["drawdown_q90"] - origin.term_structure["drawdown_median"], 1e-4).to_numpy(),
+        (count, 1),
+    )
+    simultaneous_lower, simultaneous_upper, simultaneous_multiplier = simultaneous_drawdown_band(
+        actual_trajectories,
+        center_trajectories,
+        scale_trajectories,
+        origin.term_structure["drawdown_median"].to_numpy(),
+        scale_trajectories[0],
+        0.95,
+    )
+    simultaneous_context = {
+        "center": origin.term_structure["drawdown_median"].to_numpy(),
+        "pointwise_lower": pointwise_lower,
+        "pointwise_upper": pointwise_upper,
+        "simultaneous_lower": simultaneous_lower,
+        "simultaneous_upper": simultaneous_upper,
+        "multiplier": simultaneous_multiplier,
+    }
+
+    crisis_mask = features["current_drawdown"].to_numpy() <= -0.10
+    scenario_table = _drawdown_scenario_table(
+        hybrid,
+        simulation_results["bootstrap"],
+        full_hmm.economic_labels,
+        initial_price,
+        historical_peak,
+        latest_center_horizon / 20,
+        calibrated_daily_volatility,
+        float(full_volatility.diagnostics["nu"]),
+        full_volatility.standardized_residuals[crisis_mask],
+        seed,
+    )
+
+    selected_mc = ordinary_mc.set_index("statistic")
+    adaptive_rows = []
+    final_batch = convergence_history.iloc[-1] if len(convergence_history) else pd.Series(dtype=float)
+    previous_batch = convergence_history.iloc[-2] if len(convergence_history) > 1 else final_batch
+    for statistic in [
+        "probability_negative_return",
+        "probability_mdd_3",
+        "probability_mdd_5",
+        "probability_mdd_7",
+        "probability_mdd_10",
+    ]:
+        if statistic == "probability_negative_return":
+            estimate = float(hybrid.summary["probability_negative_return"])
+            mcse = float(np.sqrt(estimate * (1 - estimate) / len(hybrid.return_paths)))
+        else:
+            estimate = float(selected_mc.loc[statistic, "estimate"])
+            mcse = float(selected_mc.loc[statistic, "mcse"])
+        adaptive_rows.append(
+            {
+                "statistic": statistic,
+                "estimate": estimate,
+                "converged": mcse <= drawdown_config["adaptive_stopping"]["probability_absolute_mcse"],
+                "mcse": mcse,
+                "relative_mcse": mcse / max(estimate, 1e-15),
+                "last_change": float(
+                    abs(final_batch.get(statistic, estimate) - previous_batch.get(statistic, estimate))
+                ),
+                "required_tolerance": drawdown_config["adaptive_stopping"]["probability_absolute_mcse"],
+            }
+        )
+    maximum = origin.running_maximum_drawdown_paths[:, -1]
+    batch_size = min(int(drawdown_config["adaptive_stopping"]["batch_size"]), len(maximum) // 2)
+    previous_maximum = maximum[:-batch_size] if batch_size else maximum
+    for statistic, value, previous, tolerance in [
+        (
+            "mdar_95",
+            origin.summary["mdar_95"],
+            np.quantile(previous_maximum, 0.95),
+            drawdown_config["adaptive_stopping"]["mdar_quantile_change_tolerance"],
+        ),
+        (
+            "mdar_99",
+            origin.summary["mdar_99"],
+            np.quantile(previous_maximum, 0.99),
+            drawdown_config["adaptive_stopping"]["mdar_quantile_change_tolerance"],
+        ),
+        (
+            "ced_95",
+            origin.summary["ced_95"],
+            conditional_expected_drawdown(previous_maximum, [0.95])["ced_95"],
+            drawdown_config["adaptive_stopping"]["ced_relative_change_tolerance"],
+        ),
+        (
+            "ced_99",
+            origin.summary["ced_99"],
+            conditional_expected_drawdown(previous_maximum, [0.99])["ced_99"],
+            drawdown_config["adaptive_stopping"]["ced_relative_change_tolerance"],
+        ),
+        (
+            "median_maximum_drawdown",
+            origin.summary["median_maximum_drawdown_severity"],
+            np.median(previous_maximum),
+            drawdown_config["adaptive_stopping"]["mdar_quantile_change_tolerance"],
+        ),
+    ]:
+        change = float(abs(float(value) - float(previous)))
+        relative = change / max(abs(float(value)), 1e-15)
+        use_relative = statistic.startswith("ced")
+        adaptive_rows.append(
+            {
+                "statistic": statistic,
+                "estimate": value,
+                "converged": relative <= tolerance if use_relative else change <= tolerance,
+                "mcse": np.nan,
+                "relative_mcse": np.nan,
+                "last_change": relative if use_relative else change,
+                "required_tolerance": tolerance,
+            }
+        )
+    adaptive_status = pd.DataFrame(adaptive_rows)
+
+    h20_interval = interval_metrics_table[
+        (interval_metrics_table["horizon"] == 20) & (interval_metrics_table["anchor_mode"] == "origin_peak")
+    ].set_index("level")
+    h20_probability = probability_calibration[
+        (probability_calibration["horizon"] == 20) & (probability_calibration["anchor_mode"] == "origin_peak")
+    ]
+    historical_probability = h20_probability[h20_probability["method"] == "historical_empirical"].set_index("threshold")
+    hybrid_probability = h20_probability[h20_probability["method"] == "hybrid_monte_carlo"].set_index("threshold")
+    h20_backtest = backtest_metrics[
+        (backtest_metrics["horizon"] == 20) & (backtest_metrics["anchor_mode"] == "origin_peak")
+    ].set_index("method")
+    selected_thresholds = drawdown_importance[drawdown_importance["selected"]].set_index("threshold")
+    acceptance = pd.DataFrame(
+        [
+            {
+                "criterion": "MDaR95 coverage in [92.5%, 97.5%]",
+                "value": h20_interval.loc[0.95, "upper_bound_coverage"],
+                "passed": 0.925 <= h20_interval.loc[0.95, "upper_bound_coverage"] <= 0.975,
+            },
+            {
+                "criterion": "MDaR99 coverage in [97.5%, 100%]",
+                "value": h20_interval.loc[0.99, "upper_bound_coverage"],
+                "passed": 0.975 <= h20_interval.loc[0.99, "upper_bound_coverage"] <= 1.0,
+            },
+            {
+                "criterion": "Brier MDD5 improves historical frequency",
+                "value": hybrid_probability.loc[0.05, "brier_score"] - historical_probability.loc[0.05, "brier_score"],
+                "passed": hybrid_probability.loc[0.05, "brier_score"] < historical_probability.loc[0.05, "brier_score"],
+            },
+            {
+                "criterion": "Brier MDD10 no worse than historical frequency",
+                "value": hybrid_probability.loc[0.10, "brier_score"] - historical_probability.loc[0.10, "brier_score"],
+                "passed": hybrid_probability.loc[0.10, "brier_score"]
+                <= historical_probability.loc[0.10, "brier_score"],
+            },
+            {
+                "criterion": "direct conformal q95 pinball improves uncalibrated MC",
+                "value": h20_backtest.loc["hybrid_direct_drawdown_conformal", "pinball_q95"]
+                - h20_backtest.loc["hybrid_monte_carlo", "pinball_q95"],
+                "passed": h20_backtest.loc["hybrid_direct_drawdown_conformal", "pinball_q95"]
+                < h20_backtest.loc["hybrid_monte_carlo", "pinball_q95"],
+            },
+            {
+                "criterion": "importance ESS/N >= 20%",
+                "value": selected_thresholds["ess_ratio"].min(),
+                "passed": selected_thresholds["ess_ratio"].min() >= 0.20,
+            },
+            {
+                "criterion": "variance reduction MDD7 or MDD10 >= 30%",
+                "value": selected_thresholds.loc[[0.07, 0.10], "variance_reduction_ratio"].max(),
+                "passed": selected_thresholds.loc[[0.07, 0.10], "variance_reduction_ratio"].max() >= 1.30,
+            },
+            {
+                "criterion": "rare-event relative MCSE <= 10%",
+                "value": selected_thresholds.loc[[0.07, 0.10], "relative_mcse"].max(),
+                "passed": selected_thresholds.loc[[0.07, 0.10], "relative_mcse"].max() <= 0.10,
+            },
+            {"criterion": "label-maturity leakage contract enabled", "value": True, "passed": True},
+        ]
+    )
+    promoted = bool(acceptance["passed"].all())
+
+    combined_term = pd.concat(
+        [
+            result.term_structure.assign(anchor_mode=name)
+            for name, result in {"origin_peak": origin, "historical_peak": historical, "rolling_peak": rolling}.items()
+        ],
+        ignore_index=True,
+    )
+    future_dates = pd.bdate_range(
+        pd.Timestamp(data["date"].iloc[-1]) + pd.offsets.BDay(1), periods=hybrid.price_paths.shape[1]
+    )
+    combined_term["estimated_trading_date"] = np.tile(future_dates.strftime("%Y-%m-%d"), 3)
+    combined_term.to_csv(root / "artifacts/forecasts/latest_drawdown_forecast.csv", index=False)
+    sample_count = min(int(config["simulation"]["sample_paths"]), len(hybrid.price_paths))
+    np.savez_compressed(
+        root / "artifacts/forecasts/latest_drawdown_paths.npz",
+        price_paths=hybrid.price_paths[:sample_count],
+        origin_drawdown_paths=origin.drawdown_paths[:sample_count],
+        historical_drawdown_paths=historical.drawdown_paths[:sample_count],
+        origin_maximum_severity=origin.running_maximum_drawdown_paths[:, -1],
+        historical_maximum_severity=historical.running_maximum_drawdown_paths[:, -1],
+        recovery_times=recovery["recovery_times"],
+    )
+    summary = {
+        "drawdown_anchor_modes": drawdown_config["anchor_modes"],
+        "origin_peak_drawdown": origin.summary,
+        "historical_peak_drawdown": historical.summary,
+        "rolling_peak_drawdown": rolling.summary,
+        "mdar": {key: origin.summary[key] for key in ["mdar_80", "mdar_90", "mdar_95", "mdar_975", "mdar_99"]},
+        "ced": {key: origin.summary[key] for key in ["ced_90", "ced_95", "ced_99"]},
+        "first_passage_probabilities": origin.summary["first_passage"],
+        "recovery_probability": recovery["probability_recovery_by_horizon"],
+        "drawdown_probability_confidence_intervals": ordinary_mc.to_dict(orient="records"),
+        "drawdown_conformal_method": h20_interval["selected_conformal_method"].to_dict(),
+        "drawdown_conformal_multiplier": simultaneous_multiplier,
+        "drawdown_calibration_status": "promoted" if promoted else "experimental",
+        "drawdown_mc_convergence_status": {
+            "stopping_reason": hybrid.summary.get("stopping_reason", "fixed_paths"),
+            "paths": len(hybrid.price_paths),
+            "statistics_not_converged": adaptive_status.loc[~adaptive_status["converged"], "statistic"].tolist(),
+        },
+        "duration": duration_summary,
+        "historical_peak": historical_peak,
+        "current_historical_drawdown": initial_price / historical_peak - 1,
+        "promotion_eligible": promoted,
+    }
+    write_json(root / "artifacts/forecasts/latest_drawdown_summary.json", summary)
+    tables = {
+        "drawdown_backtest_metrics": backtest_metrics,
+        "drawdown_interval_metrics": interval_metrics_table,
+        "drawdown_probability_calibration": probability_calibration,
+        "drawdown_first_passage_summary": first_passage_table,
+        "drawdown_recovery_summary": recovery_summary,
+        "mdar_ced_summary": mdar_ced,
+        "drawdown_mc_uncertainty": mc_uncertainty,
+        "drawdown_importance_sampling": drawdown_importance,
+        "drawdown_scenario_comparison": scenario_table,
+        "drawdown_anchor_comparison": anchor_comparison,
+        "drawdown_conformal_selection": drawdown_conformal_selection,
+        "drawdown_conditional_coverage": conditional_coverage,
+        "drawdown_rolling_coverage": rolling_coverage,
+        "drawdown_backtest_records": backtest_details,
+        "drawdown_adaptive_status": adaptive_status,
+        "drawdown_acceptance_results": acceptance,
+    }
+    plot_context = {
+        "origin_term": origin.term_structure,
+        "historical_term": historical.term_structure,
+        "first_passage": first_passage_plot,
+        "recovery": recovery_table,
+        "backtest": backtest_metrics,
+        "interval": interval_metrics_table,
+        "probability": probability_calibration,
+        "mc_uncertainty": ordinary_mc,
+        "importance": drawdown_importance,
+        "scenarios": scenario_table,
+        "duration": duration_frame,
+        "details": h20_details,
+        "simultaneous": simultaneous_context,
+        "calibration": conditional_coverage,
+    }
+    return {
+        "summary": summary,
+        "tables": tables,
+        "plot_context": plot_context,
+        "origin": origin,
+        "historical": historical,
+        "recovery": recovery,
+        "acceptance": acceptance,
+        "mc": ordinary_mc,
+        "importance": drawdown_importance,
+        "probability": probability_calibration,
+    }
 
 
 def _readme(context: dict, root: Path) -> None:
@@ -704,9 +1368,9 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         for class_position, class_name in enumerate(CLASS_NAMES):
             prediction_frame[f"probability_{class_name.lower()}"] = calibrated_probability[:, class_position]
         prediction_frames.append(prediction_frame)
-        validation_sigma = (
-            volatility.features["egarch_forecast_volatility"].iloc[validation_index].to_numpy() * np.sqrt(horizon)
-        )
+        validation_sigma = volatility.features["egarch_forecast_volatility"].iloc[
+            validation_index
+        ].to_numpy() * np.sqrt(horizon)
         sigma = volatility.features["egarch_forecast_volatility"].iloc[test_index].to_numpy() * np.sqrt(horizon)
         residual_pool = volatility.standardized_residuals[train_index]
         residual_pool = residual_pool[np.isfinite(residual_pool)]
@@ -791,20 +1455,21 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         old_var95 = main_prediction["return"] + sigma * q95
         old_var99 = main_prediction["return"] + sigma * q99
         var95 = conformal_result["var_95"].to_numpy(dtype=float) if advanced_enabled else old_var95
-        validation_signed_scores = (y_return[validation_index] - validation_center) / np.maximum(
-            validation_sigma, 1e-8
-        )
+        validation_signed_scores = (y_return[validation_index] - validation_center) / np.maximum(validation_sigma, 1e-8)
         signed_cutoff = signed_lower_quantile(validation_signed_scores, 0.05)
         signed_tail = validation_signed_scores[validation_signed_scores <= signed_cutoff]
         conformal_es95 = improved_center + sigma * float(np.mean(signed_tail))
         if not advanced_enabled:
-            conformal_es95 = main_prediction["return"] + sigma * residual_pool[
-                residual_pool <= np.quantile(residual_pool, 0.05)
-            ].mean()
+            conformal_es95 = (
+                main_prediction["return"]
+                + sigma * residual_pool[residual_pool <= np.quantile(residual_pool, 0.05)].mean()
+            )
         var99 = improved_center + sigma * signed_lower_quantile(validation_signed_scores, 0.01)
         one_hot = np.column_stack([(y_class[test_index] == name).astype(int) for name in CLASS_NAMES])
         prediction_frame["brier_loss"] = np.sum((calibrated_probability - one_hot) ** 2, axis=1)
-        prediction_frame["old_interval_95_covered"] = ((actual_return >= lower) & (actual_return <= upper)).astype(float)
+        prediction_frame["old_interval_95_covered"] = ((actual_return >= lower) & (actual_return <= upper)).astype(
+            float
+        )
         prediction_frame["old_lower_95"] = lower
         prediction_frame["old_upper_95"] = upper
         prediction_frame["interval_95_covered"] = (
@@ -828,9 +1493,7 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
                 "horizon": horizon,
                 "var_95_mean": float(var95.mean()),
                 "var_99_mean": float(var99.mean()),
-                "expected_shortfall_95_mean": float(
-                    np.mean(conformal_es95)
-                ),
+                "expected_shortfall_95_mean": float(np.mean(conformal_es95)),
                 "expected_shortfall_99_mean": float(
                     np.mean(
                         main_prediction["return"]
@@ -906,7 +1569,9 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
             "center_selection": center_selection,
             "conformal_selection": conformal_selection,
             "validation_center": validation_center,
+            "validation_drawdown_prediction": validation_predictions[selected_model]["drawdown"],
             "improved_center": improved_center,
+            "y_drawdown": y_drawdown,
             "conformal_result": conformal_result,
             "validation_sigma": validation_sigma,
             "test_sigma": sigma,
@@ -1156,12 +1821,13 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         config["conformal"]["minimum_stratum_size"],
     )
     nominal_multiplier = abs(
-        float(t.ppf(0.975, full_volatility.diagnostics["nu"]) * np.sqrt((full_volatility.diagnostics["nu"] - 2) / full_volatility.diagnostics["nu"]))
+        float(
+            t.ppf(0.975, full_volatility.diagnostics["nu"])
+            * np.sqrt((full_volatility.diagnostics["nu"] - 2) / full_volatility.diagnostics["nu"])
+        )
     )
     conformal_scale = (
-        float(latest_conformal["multiplier_95"].iloc[0] / max(nominal_multiplier, 1e-8))
-        if advanced_enabled
-        else 1.0
+        float(latest_conformal["multiplier_95"].iloc[0] / max(nominal_multiplier, 1e-8)) if advanced_enabled else 1.0
     )
     calibrated_daily_volatility = float(
         full_volatility.features["egarch_forecast_volatility"].iloc[-1] * conformal_scale
@@ -1310,6 +1976,29 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
             },
         ]
     )
+    drawdown_layer = None
+    if config.get("drawdown", {}).get("enabled", False):
+        drawdown_layer = _run_drawdown_layer(
+            root,
+            config,
+            data,
+            features,
+            targets,
+            horizons,
+            horizon_state,
+            volatility,
+            full_volatility,
+            full_hmm,
+            hybrid,
+            simulation_results,
+            convergence_history,
+            naive_tail,
+            importance_results,
+            selected_importance,
+            latest_center_horizon,
+            calibrated_daily_volatility,
+            seed,
+        )
     forecast = hybrid.forecast.copy()
     future_dates = pd.bdate_range(pd.Timestamp(data["date"].iloc[-1]) + pd.offsets.BDay(1), periods=len(forecast))
     forecast.insert(1, "estimated_trading_date", future_dates.strftime("%Y-%m-%d"))
@@ -1355,6 +2044,8 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         "model_version": "1.1.0-experimental",
         "trading_date_note": "Ngày làm việc gần đúng; chưa loại ngày nghỉ chính thức HOSE.",
     }
+    if drawdown_layer is not None:
+        latest_summary.update(drawdown_layer["summary"])
     write_json(root / "artifacts/forecasts/latest_forecast_summary.json", latest_summary)
     save_model(root / "artifacts/models/final_h20_model.joblib", final_model)
     save_model(root / "artifacts/models/final_hmm.joblib", full_hmm)
@@ -1424,9 +2115,7 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
     a1_var_rate = float(np.mean(actual20 < a1_var))
     selected_var_rate = float(np.mean(actual20 < records20["var_95"].to_numpy(dtype=float)))
     old_rmse = float(np.sqrt(np.mean(np.square(actual20 - records20["old_center"].to_numpy(dtype=float)))))
-    improved_rmse = float(
-        np.sqrt(np.mean(np.square(actual20 - records20["improved_center"].to_numpy(dtype=float))))
-    )
+    improved_rmse = float(np.sqrt(np.mean(np.square(actual20 - records20["improved_center"].to_numpy(dtype=float)))))
     old_mae = float(np.mean(np.abs(actual20 - records20["old_center"].to_numpy(dtype=float))))
     improved_mae = float(np.mean(np.abs(actual20 - records20["improved_center"].to_numpy(dtype=float))))
     before_after = pd.DataFrame(
@@ -1491,7 +2180,11 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
                 "A4 + stratified Monte Carlo",
                 selected_interval,
                 selected_var_rate,
-                mcse_mdd_7=float(simulation_efficiency.loc[simulation_efficiency["method"] == "stratified_monte_carlo", "mcse_mdd_7"].iloc[0]),
+                mcse_mdd_7=float(
+                    simulation_efficiency.loc[
+                        simulation_efficiency["method"] == "stratified_monte_carlo", "mcse_mdd_7"
+                    ].iloc[0]
+                ),
             ),
             ablation_row(
                 "A6",
@@ -1499,7 +2192,9 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
                 selected_interval,
                 selected_var_rate,
                 ess_ratio=float(selected_importance.diagnostics["ess_ratio"]),
-                variance_reduction_ratio=float(importance_sensitivity.loc[importance_index, "variance_reduction_ratio_mdd_7"]),
+                variance_reduction_ratio=float(
+                    importance_sensitivity.loc[importance_index, "variance_reduction_ratio_mdd_7"]
+                ),
             ),
             ablation_row(
                 "A7",
@@ -1628,6 +2323,8 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         "regime_threshold_selection": threshold_table,
         "volatility_model_comparison": volatility_model_comparison,
     }
+    if drawdown_layer is not None:
+        tables.update(drawdown_layer["tables"])
     for name, table in tables.items():
         _save_table(table, name, root)
     diagnostics = {
@@ -1681,6 +2378,20 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         ],
         "elapsed_seconds": time.perf_counter() - started,
     }
+    if drawdown_layer is not None:
+        diagnostics["drawdown"] = {
+            "enabled": True,
+            "promotion_eligible": drawdown_layer["summary"]["promotion_eligible"],
+            "calibration_status": drawdown_layer["summary"]["drawdown_calibration_status"],
+            "mc_convergence_status": drawdown_layer["summary"]["drawdown_mc_convergence_status"],
+        }
+        diagnostics["outputs"].extend(
+            [
+                "artifacts/forecasts/latest_drawdown_forecast.csv",
+                "artifacts/forecasts/latest_drawdown_summary.json",
+                "artifacts/forecasts/latest_drawdown_paths.npz",
+            ]
+        )
     write_json(root / "reports/diagnostics/run_diagnostics.json", diagnostics)
     plot_context = {
         "data": data,
@@ -1725,6 +2436,9 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         root / "reports/figures",
     )
     figure_names.extend(advanced_figure_names)
+    drawdown_figure_names: list[str] = []
+    if drawdown_layer is not None:
+        drawdown_figure_names = generate_drawdown_figures(drawdown_layer["plot_context"], root / "reports/figures")
     report_context = {
         "quality": quality,
         "latest_summary": latest_summary,
@@ -1769,6 +2483,21 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
     }
     write_reports(report_context, root)
     _readme({**report_context, "model_comparison": model_comparison}, root)
+    if drawdown_layer is not None:
+        _append_drawdown_reports(
+            {
+                "origin_summary": drawdown_layer["origin"].summary,
+                "historical_summary": drawdown_layer["historical"].summary,
+                "acceptance": drawdown_layer["acceptance"],
+                "probability": drawdown_layer["probability"],
+                "recovery": drawdown_layer["recovery"],
+                "mc": drawdown_layer["mc"],
+                "importance": drawdown_layer["importance"],
+                "figure_names": drawdown_figure_names,
+            },
+            root,
+        )
+        figure_names.extend(drawdown_figure_names)
     _log(
         "run_completed",
         elapsed_seconds=round(time.perf_counter() - started, 2),

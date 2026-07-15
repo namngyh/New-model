@@ -100,3 +100,8 @@ Các artifacts và báo cáo hiện tại được sinh từ `configs/experiment
 ## Hạn chế
 
 Structural break, sparse Stress class, calibration drift, proxy lịch ngày làm việc, sai số HMM/EGARCH và giả định residual lịch sử còn đại diện đều có thể làm forecast lệch. Monte Carlo paths là các kịch bản có điều kiện; median path không phải quỹ đạo chắc chắn. Không có kết quả nào ở đây bảo đảm hiệu quả giao dịch.
+
+
+## Calibrated drawdown forecast
+
+Hai anchor `origin_peak` và `historical_peak`, MDaR/CED, first passage, recovery censoring, probability CI và direct drawdown conformal được sinh từ pipeline. Latest origin-peak MDaR95 là **9.43%**; xem `artifacts/forecasts/latest_drawdown_*` và hình 54–70. Module vẫn experimental trừ khi toàn bộ drawdown acceptance checks đạt.

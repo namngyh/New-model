@@ -168,15 +168,19 @@ def generate_all_figures(context: dict, output_dir: str | Path = "reports/figure
     [
         ax.plot(
             [
-                class_prob[(class_prob[:, i] >= left) & (class_prob[:, i] < right), i].mean()
-                if ((class_prob[:, i] >= left) & (class_prob[:, i] < right)).any()
-                else np.nan
+                (
+                    class_prob[(class_prob[:, i] >= left) & (class_prob[:, i] < right), i].mean()
+                    if ((class_prob[:, i] >= left) & (class_prob[:, i] < right)).any()
+                    else np.nan
+                )
                 for left, right in zip(bins[:-1], bins[1:], strict=True)
             ],
             [
-                np.mean(class_labels[(class_prob[:, i] >= left) & (class_prob[:, i] < right)] == name)
-                if ((class_prob[:, i] >= left) & (class_prob[:, i] < right)).any()
-                else np.nan
+                (
+                    np.mean(class_labels[(class_prob[:, i] >= left) & (class_prob[:, i] < right)] == name)
+                    if ((class_prob[:, i] >= left) & (class_prob[:, i] < right)).any()
+                    else np.nan
+                )
                 for left, right in zip(bins[:-1], bins[1:], strict=True)
             ],
             marker="o",
@@ -463,4 +467,185 @@ def generate_advanced_figures(context: dict, output_dir: str | Path = "reports/f
     ax.legend()
     ax.set(title="Current and improved model on identical h=20 test periods", ylabel="Return")
     save(fig, "53_current_vs_improved_same_test")
+    return names
+
+
+def generate_drawdown_figures(context: dict, output_dir: str | Path = "reports/figures") -> list[str]:
+    """Generate figures 54-70 from drawdown path and backtest artifacts."""
+    root = Path(output_dir)
+    origin = context["origin_term"]
+    historical = context["historical_term"]
+    first_passage = context["first_passage"]
+    recovery = context["recovery"]
+    interval = context["interval"]
+    probability = context["probability"]
+    mc = context["mc_uncertainty"]
+    importance = context["importance"]
+    scenarios = context["scenarios"]
+    duration = context["duration"]
+    details = context["details"]
+    simultaneous = context["simultaneous"]
+    calibration = context["calibration"]
+    names: list[str] = []
+
+    def save(fig, name):
+        _save(fig, root, name)
+        names.append(name)
+
+    def fan(table, title, name, running=False):
+        prefix = "running_mdd" if running else "drawdown"
+        median = f"{prefix}_median"
+        lower = "drawdown_q025" if not running else "running_mdd_median"
+        upper = "drawdown_q975" if not running else "running_mdd_q95"
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.fill_between(table["step"], table[lower], table[upper], alpha=0.2, label="Band")
+        ax.plot(table["step"], table[median], lw=1.8, label="Median")
+        ax.set(title=title, xlabel="Phiên", ylabel="Drawdown severity")
+        ax.legend()
+        save(fig, name)
+
+    fan(origin, "Drawdown fan chart — origin peak", "54_drawdown_fan_chart_origin_peak")
+    fan(historical, "Drawdown fan chart — historical peak", "55_drawdown_fan_chart_historical_peak")
+    fan(origin, "Running maximum drawdown severity", "56_running_maximum_drawdown_fan_chart", running=True)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    for column in [value for value in origin if value.startswith("probability_breach_")]:
+        ax.plot(origin["step"], origin[column], label=column.replace("probability_breach_", ""))
+    ax.set(title="Cumulative drawdown breach probabilities", xlabel="Phiên", ylabel="Xác suất", ylim=(0, 1))
+    ax.legend(title="Ngưỡng %")
+    save(fig, "57_drawdown_breach_probability_term_structure")
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    passage_values = first_passage.dropna(subset=["first_passage_time"])
+    for threshold, group in passage_values.groupby("threshold"):
+        ax.hist(
+            group["first_passage_time"],
+            bins=np.arange(0.5, origin["step"].max() + 1.5),
+            alpha=0.35,
+            label=f"{threshold:.0%}",
+        )
+    ax.set(title="Conditional first-passage time distribution", xlabel="Phiên breach", ylabel="Số paths")
+    ax.legend()
+    save(fig, "58_first_passage_time_distribution")
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.plot(origin["step"], origin["running_mdd_q90"], label="MDaR 90")
+    ax.plot(origin["step"], origin["running_mdd_q95"], label="MDaR 95")
+    ax.plot(origin["step"], origin["running_mdd_q99"], label="MDaR 99")
+    ax.set(title="Maximum Drawdown at Risk term structure", xlabel="Phiên", ylabel="Severity")
+    ax.legend()
+    save(fig, "59_mdar_ced_term_structure")
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.step(recovery["step"], recovery["probability_recovery_by_step"], where="post", label="Recovery CDF")
+    ax.step(recovery["step"], recovery["unrecovered_survival"], where="post", label="Unrecovered survival")
+    ax.set(title="Historical-peak recovery probability", xlabel="Phiên", ylabel="Xác suất", ylim=(0, 1))
+    ax.legend()
+    save(fig, "60_recovery_probability_curve")
+
+    reliability = probability.groupby(["method", "threshold"], as_index=False).agg(
+        mean_probability=("mean_probability", "mean"), event_rate=("event_rate", "mean")
+    )
+    fig, ax = plt.subplots(figsize=(7, 6))
+    for method, group in reliability.groupby("method"):
+        ax.plot(group["mean_probability"], group["event_rate"], marker="o", label=method)
+    ax.plot([0, 1], [0, 1], "k--")
+    ax.set(title="Drawdown breach reliability", xlabel="Xác suất dự báo", ylabel="Tần suất thực tế")
+    ax.legend(fontsize=7)
+    save(fig, "61_drawdown_probability_reliability")
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    ax.scatter(details["median_hybrid_monte_carlo"], details["actual_severity"], s=8, alpha=0.5)
+    limit = float(max(details["median_hybrid_monte_carlo"].max(), details["actual_severity"].max()))
+    ax.plot([0, limit], [0, limit], "k--")
+    ax.set(title="Realized vs predicted median drawdown", xlabel="Predicted severity", ylabel="Realized severity")
+    save(fig, "62_realized_vs_predicted_drawdown")
+
+    selected_interval = interval[interval["method"] == "hybrid_direct_drawdown_conformal"]
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for horizon, group in selected_interval.groupby("horizon"):
+        ax.plot(group["level"], group["upper_bound_coverage"], marker="o", label=f"h={horizon}")
+    ax.plot([0.8, 1], [0.8, 1], "k--")
+    ax.set(title="Direct drawdown upper-bound coverage", xlabel="Nominal", ylabel="OOS coverage")
+    ax.legend(ncol=2)
+    save(fig, "63_drawdown_upper_bound_coverage")
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    step = np.arange(1, len(simultaneous["center"]) + 1)
+    ax.fill_between(
+        step,
+        simultaneous["simultaneous_lower"],
+        simultaneous["simultaneous_upper"],
+        alpha=0.2,
+        label="Simultaneous 95%",
+    )
+    ax.fill_between(
+        step, simultaneous["pointwise_lower"], simultaneous["pointwise_upper"], alpha=0.35, label="Pointwise 95%"
+    )
+    ax.plot(step, simultaneous["center"], color="black", label="Median")
+    ax.set(title="Pointwise vs simultaneous drawdown band", xlabel="Phiên", ylabel="Severity")
+    ax.legend()
+    save(fig, "64_pointwise_vs_simultaneous_drawdown_band")
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(origin["step"], origin["drawdown_median"], label="Origin peak")
+    ax.plot(historical["step"], historical["drawdown_median"], label="Historical peak")
+    ax.set(title="Origin-peak vs historical-peak drawdown", xlabel="Phiên", ylabel="Median severity")
+    ax.legend()
+    save(fig, "65_origin_vs_historical_peak_drawdown")
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.bar(mc["statistic"], mc["mcse"])
+    ax.tick_params(axis="x", rotation=35)
+    ax.set(title="Drawdown probability Monte Carlo error", ylabel="MCSE")
+    save(fig, "66_drawdown_mcse_by_paths")
+
+    selected_importance = importance[importance["selected"]]
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.bar(selected_importance["threshold"].astype(str), selected_importance["variance_reduction_ratio"])
+    ax.axhline(1.3, color="red", linestyle="--", label="Acceptance 1.30x")
+    ax.set(
+        title="Threshold-specific importance-sampling efficiency", xlabel="MDD threshold", ylabel="Variance reduction"
+    )
+    ax.legend()
+    save(fig, "67_drawdown_importance_sampling_efficiency")
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ordered = scenarios.sort_values("mdar_95")
+    ax.barh(ordered["scenario"], ordered["mdar_95"], alpha=0.75)
+    ax.scatter(ordered["ced_95"], ordered["scenario"], color="firebrick", label="CED 95")
+    ax.set(title="Drawdown scenario risk cone", xlabel="Severity")
+    ax.legend()
+    save(fig, "68_drawdown_scenario_risk_cone")
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.hist(
+        duration["maximum_underwater_duration"],
+        bins=np.arange(0.5, origin["step"].max() + 1.5),
+        alpha=0.55,
+        label="Maximum",
+    )
+    ax.hist(
+        duration["ending_underwater_duration"],
+        bins=np.arange(0.5, origin["step"].max() + 1.5),
+        alpha=0.55,
+        label="Ending",
+    )
+    ax.set(title="Drawdown duration distribution", xlabel="Số phiên", ylabel="Paths")
+    ax.legend()
+    save(fig, "69_drawdown_duration_distribution")
+
+    regime_calibration = calibration[
+        (calibration["horizon"] == 20)
+        & (calibration["anchor_mode"] == "origin_peak")
+        & (calibration["level"] == 0.95)
+        & (calibration["stratum_type"] == "regime")
+    ].copy()
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.bar(regime_calibration["stratum"].astype(str), regime_calibration["conditional_coverage"])
+    ax.axhline(0.95, color="black", linestyle="--", label="Nominal 95%")
+    ax.tick_params(axis="x", rotation=30)
+    ax.set(title="OOS drawdown calibration by filtered regime", ylabel="Conditional coverage", ylim=(0, 1))
+    ax.legend()
+    save(fig, "70_drawdown_calibration_by_regime")
     return names

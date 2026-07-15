@@ -1,0 +1,425 @@
+{
+  "run_timestamp_utc": "2026-07-15T08:41:19.428977+00:00",
+  "data_path": "data/raw/VNINDEX_Daily.csv",
+  "data_hash": "b9223de5500676ccd64fdb29edc27bf2c28bc04f424397dd3058e674737ea379",
+  "config_path": "configs/experimental.yaml",
+  "seed": 55,
+  "library_versions": {
+    "python": "3.12.12",
+    "numpy": "2.2.6",
+    "pandas": "2.3.3",
+    "scipy": "1.17.1",
+    "scikit-learn": "1.8.0",
+    "statsmodels": "0.14.6",
+    "arch": "8.0.0",
+    "hmmlearn": "0.3.3",
+    "matplotlib": "3.10.8"
+  },
+  "model_version": "1.0.0",
+  "last_data_date": "2026-07-13",
+  "selected_features": [
+    "simple_return",
+    "return_lag_1",
+    "return_lag_2",
+    "return_lag_3",
+    "return_lag_4",
+    "return_lag_5",
+    "return_lag_6",
+    "return_lag_7",
+    "return_lag_8",
+    "return_lag_9",
+    "return_lag_10",
+    "return_lag_11",
+    "return_lag_12",
+    "return_lag_13",
+    "return_lag_14",
+    "return_lag_15",
+    "return_lag_16",
+    "return_lag_17",
+    "return_lag_18",
+    "return_lag_19",
+    "return_lag_20",
+    "cumulative_return_2",
+    "cumulative_return_3",
+    "cumulative_return_5",
+    "cumulative_return_10",
+    "cumulative_return_20",
+    "cumulative_return_40",
+    "cumulative_return_60",
+    "distance_sma_5",
+    "distance_sma_10",
+    "distance_sma_20",
+    "distance_sma_50",
+    "distance_sma_100",
+    "distance_sma_200",
+    "distance_ema_5",
+    "distance_ema_10",
+    "distance_ema_20",
+    "distance_ema_26",
+    "distance_ema_50",
+    "macd",
+    "macd_signal",
+    "macd_histogram",
+    "log_price_slope_5",
+    "up_ratio_5",
+    "log_price_slope_10",
+    "up_ratio_10",
+    "log_price_slope_20",
+    "up_ratio_20",
+    "log_price_slope_60",
+    "up_ratio_60",
+    "return_streak",
+    "rolling_volatility_5",
+    "rolling_volatility_10",
+    "rolling_volatility_20",
+    "rolling_volatility_40",
+    "rolling_volatility_60",
+    "ewma_volatility",
+    "downside_volatility",
+    "upside_volatility",
+    "semivariance",
+    "rolling_skewness",
+    "rolling_excess_kurtosis",
+    "historical_var_95",
+    "historical_es_95",
+    "jump_proxy",
+    "volatility_of_volatility",
+    "current_drawdown",
+    "distance_peak_20",
+    "distance_peak_60",
+    "distance_peak_120",
+    "distance_peak_252",
+    "rolling_max_drawdown",
+    "drawdown_duration",
+    "recovery_speed",
+    "realized_range",
+    "parkinson_volatility",
+    "atr_normalized",
+    "garman_klass_volatility",
+    "bollinger_width",
+    "log_volume",
+    "volume_change",
+    "volume_zscore",
+    "volume_average_20",
+    "volume_volatility",
+    "price_volume_interaction",
+    "obv",
+    "obv_trend",
+    "day_of_week",
+    "month",
+    "quarter",
+    "is_month_end",
+    "is_month_start"
+  ],
+  "hmm": {
+    "selected_states": 5,
+    "selected_seed": 55,
+    "converged": true,
+    "feature_names": [
+      "log_return",
+      "rolling_volatility_20",
+      "downside_volatility",
+      "cumulative_return_20",
+      "current_drawdown",
+      "volume_zscore"
+    ],
+    "transition_matrix": [
+      [
+        0.970392031183609,
+        9.242747089029685e-44,
+        0.02506680535369694,
+        0.004541163462694003,
+        1.03280964334647e-210
+      ],
+      [
+        3.054658943985093e-30,
+        0.9587388345672154,
+        0.02087118730878907,
+        0.0009377639683926947,
+        0.019452214155602703
+      ],
+      [
+        0.010328480798371233,
+        0.031457610491035425,
+        0.9582139087104881,
+        1.0524902801263982e-13,
+        1.8437262132417458e-46
+      ],
+      [
+        0.0070100123036452916,
+        7.139486914951433e-103,
+        1.580876648007563e-68,
+        0.9929899876963547,
+        0.0
+      ],
+      [
+        6.216274697740983e-76,
+        0.02187217229854822,
+        0.004312212149163445,
+        1.22047605087755e-259,
+        0.9738156155522883
+      ]
+    ],
+    "expected_duration": [
+      33.77469107054711,
+      24.23586414758507,
+      23.931408014967747,
+      142.65310197529735,
+      38.19070110267166
+    ],
+    "economic_labels": [
+      "Bear",
+      "Sideway",
+      "Sideway",
+      "Bull",
+      "Stress"
+    ],
+    "state_statistics_raw": [
+      {
+        "raw_state": 0,
+        "mean_return": 0.004385505701711463,
+        "volatility": 0.018260481788221445,
+        "mean_drawdown": -0.10492532534614725
+      },
+      {
+        "raw_state": 1,
+        "mean_return": -0.00029263048412622836,
+        "volatility": 0.01008784951727359,
+        "mean_drawdown": -0.5736961245002942
+      },
+      {
+        "raw_state": 2,
+        "mean_return": -0.0029280591985809887,
+        "volatility": 0.028623407493818084,
+        "mean_drawdown": -0.5473800411612088
+      },
+      {
+        "raw_state": 3,
+        "mean_return": 9.952568085693793e-05,
+        "volatility": 0.005721501334632878,
+        "mean_drawdown": -0.6169938917141687
+      },
+      {
+        "raw_state": 4,
+        "mean_return": 0.0008382317986921472,
+        "volatility": 0.016771923907307085,
+        "mean_drawdown": -0.5998257526902349
+      }
+    ],
+    "candidate_models": [
+      {
+        "states": 2,
+        "seed": 11,
+        "aic": 49835.79042721677,
+        "bic": 50016.23669435908,
+        "min_occupancy": 0.4572349199185897,
+        "converged": true,
+        "selection_score": 50016.23669435908
+      },
+      {
+        "states": 2,
+        "seed": 22,
+        "aic": 49835.79049638696,
+        "bic": 50016.23676352927,
+        "min_occupancy": 0.45716670394453984,
+        "converged": true,
+        "selection_score": 50016.23676352927
+      },
+      {
+        "states": 2,
+        "seed": 33,
+        "aic": 49835.7905047049,
+        "bic": 50016.23677184721,
+        "min_occupancy": 0.45716577294418836,
+        "converged": true,
+        "selection_score": 50016.23677184721
+      },
+      {
+        "states": 2,
+        "seed": 44,
+        "aic": 49835.790533404346,
+        "bic": 50016.236800546656,
+        "min_occupancy": 0.4571627169960115,
+        "converged": true,
+        "selection_score": 50016.236800546656
+      },
+      {
+        "states": 2,
+        "seed": 55,
+        "aic": 49835.79045461762,
+        "bic": 50016.23672175993,
+        "min_occupancy": 0.4571717682576728,
+        "converged": true,
+        "selection_score": 50016.23672175993
+      },
+      {
+        "states": 3,
+        "seed": 11,
+        "aic": 44830.1636432643,
+        "bic": 45122.611041736316,
+        "min_occupancy": 0.26504217989213785,
+        "converged": true,
+        "selection_score": 45122.611041736316
+      },
+      {
+        "states": 3,
+        "seed": 22,
+        "aic": 46240.67219333491,
+        "bic": 46533.11959180693,
+        "min_occupancy": 0.1394702892897353,
+        "converged": true,
+        "selection_score": 46533.11959180693
+      },
+      {
+        "states": 3,
+        "seed": 33,
+        "aic": 45596.09443424079,
+        "bic": 45888.541832712806,
+        "min_occupancy": 0.31928069450450897,
+        "converged": true,
+        "selection_score": 45888.541832712806
+      },
+      {
+        "states": 3,
+        "seed": 44,
+        "aic": 46240.672142772215,
+        "bic": 46533.11954124423,
+        "min_occupancy": 0.1394721600921735,
+        "converged": true,
+        "selection_score": 46533.11954124423
+      },
+      {
+        "states": 3,
+        "seed": 55,
+        "aic": 45648.58688891202,
+        "bic": 45941.034287384035,
+        "min_occupancy": 0.1755607037499493,
+        "converged": true,
+        "selection_score": 45941.034287384035
+      },
+      {
+        "states": 4,
+        "seed": 11,
+        "aic": 41261.38726887656,
+        "bic": 41678.28036882603,
+        "min_occupancy": 0.1547979461110378,
+        "converged": true,
+        "selection_score": 41678.28036882603
+      },
+      {
+        "states": 4,
+        "seed": 22,
+        "aic": 41959.37405856635,
+        "bic": 42376.26715851582,
+        "min_occupancy": 0.11858384565285045,
+        "converged": true,
+        "selection_score": 42376.26715851582
+      },
+      {
+        "states": 4,
+        "seed": 33,
+        "aic": 44412.30740709431,
+        "bic": 44829.20050704378,
+        "min_occupancy": 0.06018265275635468,
+        "converged": true,
+        "selection_score": 44829.20050704378
+      },
+      {
+        "states": 4,
+        "seed": 44,
+        "aic": 41261.38730012475,
+        "bic": 41678.28040007422,
+        "min_occupancy": 0.1547973013630446,
+        "converged": true,
+        "selection_score": 41678.28040007422
+      },
+      {
+        "states": 4,
+        "seed": 55,
+        "aic": 41261.38688126289,
+        "bic": 41678.27998121236,
+        "min_occupancy": 0.15479528982354693,
+        "converged": true,
+        "selection_score": 41678.27998121236
+      },
+      {
+        "states": 5,
+        "seed": 11,
+        "aic": 39223.42846605398,
+        "bic": 39777.21183762865,
+        "min_occupancy": 0.14279097211809993,
+        "converged": true,
+        "selection_score": 39777.21183762865
+      },
+      {
+        "states": 5,
+        "seed": 22,
+        "aic": 37997.045027109,
+        "bic": 38550.828398683676,
+        "min_occupancy": 0.11712716621897162,
+        "converged": true,
+        "selection_score": 38550.828398683676
+      },
+      {
+        "states": 5,
+        "seed": 33,
+        "aic": 38016.341055906865,
+        "bic": 38570.12442748154,
+        "min_occupancy": 0.11709297983129992,
+        "converged": true,
+        "selection_score": 38570.12442748154
+      },
+      {
+        "states": 5,
+        "seed": 44,
+        "aic": 38081.399586414045,
+        "bic": 38635.18295798872,
+        "min_occupancy": 0.15328685775004633,
+        "converged": true,
+        "selection_score": 38635.18295798872
+      },
+      {
+        "states": 5,
+        "seed": 55,
+        "aic": 37997.04473248387,
+        "bic": 38550.82810405854,
+        "min_occupancy": 0.11712993074827083,
+        "converged": true,
+        "selection_score": 38550.82810405854
+      }
+    ],
+    "warnings": [],
+    "probability_type": "forward-filtered P(S_t | F_t); not smoothed"
+  },
+  "egarch": {
+    "model": "EGARCH(1,1) Student-t",
+    "converged": true,
+    "fallback": null,
+    "parameters": {
+      "mu": -0.0023883380419757933,
+      "omega": 0.023085489411466723,
+      "alpha[1]": 0.4524337779727687,
+      "gamma[1]": -0.014624491205061726,
+      "beta[1]": 0.9622973558265514,
+      "nu": 11.043793198702994
+    },
+    "nu": 11.043793198702994,
+    "ljung_box_pvalue": 4.604516056659887e-84,
+    "squared_ljung_box_pvalue": 0.07679917695861926,
+    "arch_lm_pvalue": 0.062039441446146655,
+    "warnings": []
+  },
+  "horizons": [
+    1,
+    5,
+    10,
+    20,
+    40,
+    60
+  ],
+  "split_dates": {
+    "train_boundary": "2016-06-07",
+    "test_boundary": "2021-06-22"
+  },
+  "elapsed_seconds": 595.281721061001
+}

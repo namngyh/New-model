@@ -167,7 +167,20 @@
   "outputs": [
     "artifacts/forecasts/latest_forecast.csv",
     "artifacts/forecasts/latest_forecast_summary.json",
-    "artifacts/forecasts/latest_monte_carlo_samples.npz"
+    "artifacts/forecasts/latest_monte_carlo_samples.npz",
+    "artifacts/forecasts/latest_drawdown_forecast.csv",
+    "artifacts/forecasts/latest_drawdown_summary.json",
+    "artifacts/forecasts/latest_drawdown_paths.npz"
   ],
-  "elapsed_seconds": 828.5575675849977
+  "elapsed_seconds": 821.9882152499995,
+  "drawdown": {
+    "enabled": true,
+    "promotion_eligible": false,
+    "calibration_status": "experimental",
+    "mc_convergence_status": {
+      "stopping_reason": "maximum_paths",
+      "paths": 40000,
+      "statistics_not_converged": []
+    }
+  }
 }

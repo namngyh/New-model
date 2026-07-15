@@ -1,0 +1,18 @@
+{
+  "model": "EGARCH(1,1) Student-t",
+  "converged": true,
+  "fallback": null,
+  "parameters": {
+    "mu": -0.0023883380419757933,
+    "omega": 0.023085489411466723,
+    "alpha[1]": 0.4524337779727687,
+    "gamma[1]": -0.014624491205061726,
+    "beta[1]": 0.9622973558265514,
+    "nu": 11.043793198702994
+  },
+  "nu": 11.043793198702994,
+  "ljung_box_pvalue": 4.604516056659887e-84,
+  "squared_ljung_box_pvalue": 0.07679917695861926,
+  "arch_lm_pvalue": 0.062039441446146655,
+  "warnings": []
+}

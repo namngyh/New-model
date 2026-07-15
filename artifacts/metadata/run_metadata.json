@@ -1,5 +1,5 @@
 {
-  "run_timestamp_utc": "2026-07-15T08:41:19.428977+00:00",
+  "run_timestamp_utc": "2026-07-15T10:00:10.168073+00:00",
   "data_path": "data/raw/VNINDEX_Daily.csv",
   "data_hash": "b9223de5500676ccd64fdb29edc27bf2c28bc04f424397dd3058e674737ea379",
   "config_path": "configs/experimental.yaml",
@@ -210,20 +210,20 @@
       {
         "states": 2,
         "seed": 11,
-        "aic": 49835.79042721677,
-        "bic": 50016.23669435908,
-        "min_occupancy": 0.4572349199185897,
+        "aic": 49835.790427225176,
+        "bic": 50016.236694367486,
+        "min_occupancy": 0.4572349199195507,
         "converged": true,
-        "selection_score": 50016.23669435908
+        "selection_score": 50016.236694367486
       },
       {
         "states": 2,
         "seed": 22,
-        "aic": 49835.79049638696,
-        "bic": 50016.23676352927,
-        "min_occupancy": 0.45716670394453984,
+        "aic": 49835.79049638665,
+        "bic": 50016.23676352896,
+        "min_occupancy": 0.45716670394439207,
         "converged": true,
-        "selection_score": 50016.23676352927
+        "selection_score": 50016.23676352896
       },
       {
         "states": 2,
@@ -237,38 +237,38 @@
       {
         "states": 2,
         "seed": 44,
-        "aic": 49835.790533404346,
-        "bic": 50016.236800546656,
-        "min_occupancy": 0.4571627169960115,
+        "aic": 49835.79053340198,
+        "bic": 50016.23680054429,
+        "min_occupancy": 0.4571627169936645,
         "converged": true,
-        "selection_score": 50016.236800546656
+        "selection_score": 50016.23680054429
       },
       {
         "states": 2,
         "seed": 55,
-        "aic": 49835.79045461762,
-        "bic": 50016.23672175993,
-        "min_occupancy": 0.4571717682576728,
+        "aic": 49835.79045461532,
+        "bic": 50016.23672175763,
+        "min_occupancy": 0.45717176825884837,
         "converged": true,
-        "selection_score": 50016.23672175993
+        "selection_score": 50016.23672175763
       },
       {
         "states": 3,
         "seed": 11,
-        "aic": 44830.1636432643,
-        "bic": 45122.611041736316,
-        "min_occupancy": 0.26504217989213785,
+        "aic": 44830.16364326252,
+        "bic": 45122.61104173453,
+        "min_occupancy": 0.265042179891251,
         "converged": true,
-        "selection_score": 45122.611041736316
+        "selection_score": 45122.61104173453
       },
       {
         "states": 3,
         "seed": 22,
-        "aic": 46240.67219333491,
-        "bic": 46533.11959180693,
-        "min_occupancy": 0.1394702892897353,
+        "aic": 46240.67219333358,
+        "bic": 46533.1195918056,
+        "min_occupancy": 0.13947028928940217,
         "converged": true,
-        "selection_score": 46533.11959180693
+        "selection_score": 46533.1195918056
       },
       {
         "states": 3,
@@ -282,11 +282,11 @@
       {
         "states": 3,
         "seed": 44,
-        "aic": 46240.672142772215,
-        "bic": 46533.11954124423,
-        "min_occupancy": 0.1394721600921735,
+        "aic": 46240.67214276601,
+        "bic": 46533.119541238026,
+        "min_occupancy": 0.13947216009207003,
         "converged": true,
-        "selection_score": 46533.11954124423
+        "selection_score": 46533.119541238026
       },
       {
         "states": 3,
@@ -309,38 +309,38 @@
       {
         "states": 4,
         "seed": 22,
-        "aic": 41959.37405856635,
-        "bic": 42376.26715851582,
-        "min_occupancy": 0.11858384565285045,
+        "aic": 41959.3740585632,
+        "bic": 42376.267158512666,
+        "min_occupancy": 0.11858384565283116,
         "converged": true,
-        "selection_score": 42376.26715851582
+        "selection_score": 42376.267158512666
       },
       {
         "states": 4,
         "seed": 33,
-        "aic": 44412.30740709431,
-        "bic": 44829.20050704378,
-        "min_occupancy": 0.06018265275635468,
+        "aic": 44412.307407094675,
+        "bic": 44829.200507044145,
+        "min_occupancy": 0.06018265275630707,
         "converged": true,
-        "selection_score": 44829.20050704378
+        "selection_score": 44829.200507044145
       },
       {
         "states": 4,
         "seed": 44,
-        "aic": 41261.38730012475,
-        "bic": 41678.28040007422,
-        "min_occupancy": 0.1547973013630446,
+        "aic": 41261.38730012362,
+        "bic": 41678.28040007309,
+        "min_occupancy": 0.15479730136302466,
         "converged": true,
-        "selection_score": 41678.28040007422
+        "selection_score": 41678.28040007309
       },
       {
         "states": 4,
         "seed": 55,
-        "aic": 41261.38688126289,
-        "bic": 41678.27998121236,
-        "min_occupancy": 0.15479528982354693,
+        "aic": 41261.386881261154,
+        "bic": 41678.279981210624,
+        "min_occupancy": 0.15479528982352694,
         "converged": true,
-        "selection_score": 41678.27998121236
+        "selection_score": 41678.279981210624
       },
       {
         "states": 5,
@@ -354,29 +354,29 @@
       {
         "states": 5,
         "seed": 22,
-        "aic": 37997.045027109,
-        "bic": 38550.828398683676,
-        "min_occupancy": 0.11712716621897162,
+        "aic": 37997.045027109445,
+        "bic": 38550.82839868412,
+        "min_occupancy": 0.11712716621888389,
         "converged": true,
-        "selection_score": 38550.828398683676
+        "selection_score": 38550.82839868412
       },
       {
         "states": 5,
         "seed": 33,
-        "aic": 38016.341055906865,
-        "bic": 38570.12442748154,
-        "min_occupancy": 0.11709297983129992,
+        "aic": 38016.341055906676,
+        "bic": 38570.12442748135,
+        "min_occupancy": 0.11709297983119774,
         "converged": true,
-        "selection_score": 38570.12442748154
+        "selection_score": 38570.12442748135
       },
       {
         "states": 5,
         "seed": 44,
-        "aic": 38081.399586414045,
-        "bic": 38635.18295798872,
-        "min_occupancy": 0.15328685775004633,
+        "aic": 38081.3995864155,
+        "bic": 38635.182957990175,
+        "min_occupancy": 0.15328685774987896,
         "converged": true,
-        "selection_score": 38635.18295798872
+        "selection_score": 38635.182957990175
       },
       {
         "states": 5,
@@ -421,5 +421,5 @@
     "train_boundary": "2016-06-07",
     "test_boundary": "2021-06-22"
   },
-  "elapsed_seconds": 595.281721061001
+  "elapsed_seconds": 620.2291817130026
 }

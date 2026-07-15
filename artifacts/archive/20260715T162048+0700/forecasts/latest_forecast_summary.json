@@ -1,0 +1,58 @@
+{
+  "forecast_origin": "2026-07-13",
+  "last_observed_close": 1800.54,
+  "expected_terminal_close": 1828.1136868778915,
+  "median_terminal_close": 1826.4086991754782,
+  "expected_return": 0.015314120695953216,
+  "median_return": 0.01436718938511683,
+  "probability_positive_return": 0.603375,
+  "probability_negative_return": 0.396625,
+  "var_95": -0.07591579519403109,
+  "var_99": -0.1154974224780565,
+  "expected_shortfall_95": -0.09966989229546297,
+  "expected_shortfall_99": -0.13540082746181886,
+  "expected_maximum_drawdown": -0.04521354033719981,
+  "median_maximum_drawdown": -0.03983753278342844,
+  "maximum_drawdown_quantiles": {
+    "0.05": -0.09429108166155468,
+    "0.5": -0.03983753278342844,
+    "0.95": -0.014134093989595536
+  },
+  "drawdown_probabilities": {
+    "0.03": 0.678125,
+    "0.05": 0.3503,
+    "0.07": 0.158675,
+    "0.1": 0.0378
+  },
+  "simulation_method": "hybrid",
+  "number_of_paths": 40000,
+  "random_seed": 55,
+  "student_weight": 0.35,
+  "regime_pool_fallback_count": 0,
+  "adaptive_stopping": true,
+  "stopping_reason": "maximum_paths",
+  "model_uncertainty": {
+    "seed_terminal_return_std": 0.0009676296490965446,
+    "terminal_95_interval_width": 389.22866355393353
+  },
+  "point_center": {
+    "mode": "random_walk_drift_fallback",
+    "alpha": 0.0,
+    "horizon_return": 0.009169458248707891
+  },
+  "conformal": {
+    "method": "regime_stratified",
+    "window": null,
+    "latest_multiplier_95": 2.804431156580905,
+    "volatility_scale": 1.4031857487502992
+  },
+  "importance_sampling": {
+    "acceptance_reason": "ESS gate passed; selected highest MDD-7 variance reduction",
+    "ess": 16047.693803095366,
+    "ess_ratio": 0.8023846901547683,
+    "variance_reduction_ratio_mdd_7": 1.382994451715616
+  },
+  "data_hash": "b9223de5500676ccd64fdb29edc27bf2c28bc04f424397dd3058e674737ea379",
+  "model_version": "1.1.0-experimental",
+  "trading_date_note": "Ngày làm việc gần đúng; chưa loại ngày nghỉ chính thức HOSE."
+}

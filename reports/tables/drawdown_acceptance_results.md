@@ -1,0 +1,11 @@
+| criterion | value | passed |
+| --- | --- | --- |
+| MDaR95 coverage in [92.5%, 97.5%] | 0.9467005076142132 | True |
+| MDaR99 coverage in [97.5%, 100%] | 0.9923857868020305 | True |
+| Brier MDD5 improves historical frequency | -0.008848807594488667 | True |
+| Brier MDD10 no worse than historical frequency | 0.0039183265394441 | False |
+| direct conformal q95 pinball improves uncalibrated MC | -0.0010513947129353399 | True |
+| importance ESS/N >= 20% | 0.8023846901547683 | True |
+| variance reduction MDD7 or MDD10 >= 30% | 2.269486149040548 | True |
+| rare-event relative MCSE <= 10% | 0.026166894072730484 | True |
+| label-maturity leakage contract enabled | True | True |

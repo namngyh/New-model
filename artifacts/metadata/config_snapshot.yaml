@@ -135,3 +135,27 @@ tail_head:
   enabled: true
   n_estimators: 300
   minimum_precision: 0.25
+drawdown:
+  enabled: true
+  anchor_modes:
+  - origin_peak
+  - historical_peak
+  include_rolling_peak: true
+  rolling_peak_window: 252
+  thresholds:
+  - 0.03
+  - 0.05
+  - 0.07
+  - 0.1
+  - 0.15
+  backtest_paths: 2000
+  latest_paths: 40000
+  adaptive_stopping:
+    batch_size: 2000
+    minimum_paths: 10000
+    maximum_paths: 100000
+    probability_absolute_mcse: 0.0025
+    rare_event_relative_mcse: 0.1
+    mdar_quantile_change_tolerance: 0.002
+    ced_relative_change_tolerance: 0.02
+    stable_batches: 3

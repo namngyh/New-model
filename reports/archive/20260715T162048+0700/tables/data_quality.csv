@@ -1,0 +1,6 @@
+check,value,status
+rows_loaded,6306,info
+duplicate_rows_removed,1,cleaned
+ohlc_constraint_violations,42,warning
+calendar_gaps_over_10_days,6,review
+close_interpolation_applied,False,pass
