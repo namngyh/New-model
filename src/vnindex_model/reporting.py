@@ -38,7 +38,7 @@ def write_reports(context: dict, root: str | Path = ".") -> None:
     monte_carlo: pd.DataFrame = context["monte_carlo_risk_summary"]
     features: pd.DataFrame = context["features"]
     best = comparison.loc[comparison.groupby("horizon")["rmse_return"].idxmin(), ["horizon", "model", "rmse_return"]]
-    model_mask = comparison["model"].str.startswith(("rf_", "soft_gated", "full_"))
+    model_mask = comparison["model"].str.startswith(("rf_", "soft_gated", "full_", "validation_gated"))
     best_baselines = comparison.loc[~model_mask].loc[
         comparison.loc[~model_mask].groupby("horizon")["rmse_return"].idxmin()
     ]
@@ -87,6 +87,22 @@ def write_reports(context: dict, root: str | Path = ".") -> None:
         .iloc[0]
     )
     forecast = context["forecast"]
+    before_after: pd.DataFrame = context["before_after"]
+    acceptance: pd.DataFrame = context["acceptance_results"]
+    center_selection: pd.DataFrame = context["point_center_selection"]
+    conformal_test: pd.DataFrame = context["conformal_test_comparison"]
+    simulation_efficiency: pd.DataFrame = context["simulation_efficiency"]
+    outer_bootstrap: pd.DataFrame = context["outer_bootstrap_summary"]
+    delete_jackknife: pd.DataFrame = context["delete_block_jackknife"]
+    tail_head: pd.DataFrame = context["tail_head_experiment"]
+    selected_alpha = center_selection[(center_selection["horizon"] == 20) & center_selection["selected"]].iloc[0]
+    selected_conformal = context["selected_conformal_method"]
+    before = before_after.iloc[0]
+    after = before_after.iloc[-1]
+    selected_is = simulation_efficiency[simulation_efficiency["method"] == "importance_sampling"].iloc[0]
+    strongest_influence = delete_jackknife.loc[delete_jackknife["absolute_influence"].idxmax()]
+    selected_tail = tail_head[tail_head["selected"]].iloc[0]
+    tail_summary = context["tail_head_summary"]
     actual_comments = {
         "01_data_splits": f"Train kết thúc {context['split_dates']['train_boundary']}, test bắt đầu sau boundary {context['split_dates']['test_boundary']}; test là đoạn cuối và không tham gia tuning.",
         "02_log_returns": f"Log-return trung bình {returns.mean():.4%}/phiên, độ lệch chuẩn {returns.std():.4%}; cực trị quan sát [{returns.min():.2%}, {returns.max():.2%}].",
@@ -124,6 +140,23 @@ def write_reports(context: dict, root: str | Path = ".") -> None:
         "34_jackknife_sensitivity": f"Block nhạy nhất là {widest_jackknife['metric']} với CI [{widest_jackknife['ci_lower']:.4f}, {widest_jackknife['ci_upper']:.4f}]; run dùng record-level quick jackknife.",
         "35_seed_stability": f"RMSE h=20 qua {len(seeds)} seed nằm trong [{seeds['rmse_return'].min():.6f}, {seeds['rmse_return'].max():.6f}], std={seeds['rmse_return'].std():.6f}.",
         "36_latest_forecast": f"Origin {summary['forecast_origin']}; median return {summary['median_return']:.2%}, P(tăng/giảm)={summary['probability_positive_return']:.2%}/{summary['probability_negative_return']:.2%}, P(MDD>5%)={summary['drawdown_probabilities']['0.05']:.2%}.",
+        "37_before_after_coverage": f"Coverage 95% tăng từ {before['coverage_95']:.2%} lên {after['coverage_95']:.2%}; thay đổi đi kèm width từ {before['interval_width_95']:.4f} lên {after['interval_width_95']:.4f}.",
+        "38_coverage_width_frontier": f"Frontier so sánh global, volatility và volatility×regime trên cùng test; phương pháp khóa từ validation là {selected_conformal}.",
+        "39_conformal_interval_score": f"Interval score test thấp nhất trong ba ablation conformal là {conformal_test.loc[conformal_test['interval_score'].idxmin(), 'interval_score']:.4f}; coverage không được tối ưu riêng lẻ.",
+        "40_sequential_conformal_multiplier": "Multiplier chỉ cập nhật khi score h=20 đã mature; window/method được khóa trên validation, không chọn lại bằng test.",
+        "41_multiplier_by_volatility_stratum": "Phân bố multiplier khác nhau giữa các volatility bin; tầng thiếu mẫu fallback về volatility, regime rồi global.",
+        "42_var_exceedance_rolling": f"VaR 95% toàn test đổi từ {before['var_exceedance_95']:.2%} xuống {after['var_exceedance_95']:.2%}; rolling rate cho thấy calibration vẫn thay đổi theo thời gian.",
+        "43_mc_probability_convergence": f"Adaptive simulation dừng với {summary['number_of_paths']:,} paths và lý do {summary.get('stopping_reason', 'fixed')}; đường hội tụ là sai số số học, không phải predictive uncertainty.",
+        "44_mcse_by_paths": "MCSE lớn nhất tại batch cuối nằm trong bảng adaptive_convergence.csv; tolerance chỉ kiểm soát Monte Carlo numerical error.",
+        "45_ess_by_proposal_strength": f"Proposal được chọn có ESS/N={selected_is['ess_ratio']:.2%}; đường đỏ là ngưỡng chấp nhận 20%.",
+        "46_importance_weight_distribution": f"Max normalized weight={selected_is['maximum_normalized_weight']:.3g}, CV weight={selected_is['weight_coefficient_of_variation']:.2f}; không clipping weight.",
+        "47_naive_vs_importance": f"Variance-reduction ratio cho P(MDD<-7%) là {selected_is['variance_reduction_ratio_mdd_7']:.2f}x; importance sampling chỉ tăng hiệu quả estimator tail.",
+        "48_tail_event_count": f"Importance proposal sinh {int(selected_is['tail_events_generated_mdd_7'])} path MDD<-7%; estimator cuối vẫn dùng likelihood ratio về xác suất thật.",
+        "49_outer_bootstrap_uncertainty": f"Outer quick bootstrap dùng {int(outer_bootstrap['replications'].max())} stationary-block replications; đây là parameter/record uncertainty approximation, không phải inner residual bootstrap.",
+        "50_delete_block_jackknife_influence": f"Influence lớn nhất là {strongest_influence['block_type']} {strongest_influence['block_label']} cho {strongest_influence['metric']}, |delta|={strongest_influence['absolute_influence']:.4f}.",
+        "51_validation_alpha_blend": f"Alpha h=20 được khóa ở {selected_alpha['alpha']:.2f}; lý do: {selected_alpha['selection_reason']}.",
+        "52_advanced_ablation": "A0-A9 dùng cùng test records; cải thiện coverage không được diễn giải là predictive signal mới.",
+        "53_current_vs_improved_same_test": f"RMSE cùng test đổi từ {before['rmse']:.6f} xuống {after['rmse']:.6f}; gated center là cơ chế bảo vệ khi ML không vượt baseline trên validation.",
     }
     figures = context["figure_names"]
     commentary = []
@@ -137,6 +170,8 @@ def write_reports(context: dict, root: str | Path = ".") -> None:
 ## 1. Tóm tắt
 
 Pipeline dự báo riêng lợi suất, mức điểm, trạng thái và phân phối rủi ro ở các horizon {context["horizons"]}. Dữ liệu thật kết thúc ngày {quality["end_date"]}. Kết luận so sánh: **{superiority.lower()}**.
+
+Run hiện tại dùng `{context['config_path']}` với mode `{context['pipeline_mode']}`. Do acceptance chỉ đạt {int(acceptance['passed'].sum())}/{len(acceptance)}, cấu hình production mặc định không được thay thế.
 
 ## 2. Mục tiêu và phạm vi
 
@@ -175,9 +210,17 @@ R² được báo cáo nhưng không được diễn giải như hiệu quả gi
 
 Confusion matrix, per-class recall, Brier, log loss và ECE được báo cáo riêng. Khả năng dự báo điểm tốt không bảo đảm recall Bear/Stress tốt. VaR/ES là thống kê có điều kiện theo mô hình, không phải mức lỗ tối đa.
 
+Baseline-gated center chọn alpha h=20 là **{selected_alpha['alpha']:.2f}** hoàn toàn trên purged validation. Đây là cơ chế bảo vệ tâm phân phối, không phải bằng chứng ML vượt random-walk drift. Sequential conformal chọn **{selected_conformal}**; coverage 95% đổi từ **{before['coverage_95']:.2%}** lên **{after['coverage_95']:.2%}**, width đổi từ **{before['interval_width_95']:.4f}** lên **{after['interval_width_95']:.4f}**, và VaR exceedance đổi từ **{before['var_exceedance_95']:.2%}** xuống **{after['var_exceedance_95']:.2%}**.
+
+Tail head chọn candidate `{selected_tail['candidate']}` trên validation, ROC-AUC={selected_tail['validation_roc_auc']:.3f}, AP={selected_tail['validation_average_precision']:.3f}, prevalence={selected_tail['validation_prevalence']:.3f}, eligible={selected_tail['eligible']}. Ở threshold đã khóa, test precision/recall chẩn đoán là {tail_summary['test_tail_precision_at_locked_threshold']:.2%}/{tail_summary['test_tail_recall_at_locked_threshold']:.2%}. Nếu gate thất bại, multiclass head cũ tiếp tục là production.
+
 ## 9. Kiểm định thống kê và ablation
 
 {superiority}. DM dùng HAC theo horizon; block bootstrap CI dùng các block liên tiếp. Nhiều phép so sánh làm tăng false discovery nên p-value cần được đọc thận trọng. Ablation tách HMM, EGARCH, soft gate, calibration và các simulation method; jackknife chỉ bổ sung đo ổn định, không cải thiện point forecast theo cơ chế.
+
+Process uncertainty đến từ regime/shock paths; parameter uncertainty được outer stationary block bootstrap quick xấp xỉ; Monte Carlo numerical error được adaptive MCSE theo dõi; calibration là conformal multiplier; rare-event efficiency được đo bằng ESS và variance reduction. Importance sampling không làm tail dễ dự báo hơn. Outer bootstrap không được đánh đồng với residual bootstrap bên trong simulation.
+
+Acceptance đạt **{int(acceptance['passed'].sum())}/{len(acceptance)}** tiêu chí. Pipeline mới chỉ được coi là default khi toàn bộ guardrail thiết yếu đạt; nếu không, cấu hình này giữ nhãn experimental.
 
 ## 10. Forecast mới nhất
 
@@ -188,7 +231,7 @@ Confusion matrix, per-class recall, Brier, log loss và ECE được báo cáo r
 - ES 95%/99%: {_percent(summary["expected_shortfall_95"])} / {_percent(summary["expected_shortfall_99"])}.
 - Expected maximum drawdown: {_percent(summary["expected_maximum_drawdown"])}; P(MDD ≤ -5%): {_percent(summary["drawdown_probabilities"]["0.05"])}.
 
-## 11. Phân tích 36 biểu đồ
+## 11. Phân tích {len(figures)} biểu đồ
 
 {commentary_text}
 
@@ -208,5 +251,7 @@ Mô hình ước lượng mức VN-Index, khả năng tăng/giảm, trạng thá
 Median terminal là **{summary["median_terminal_close"]:.2f}**, tương ứng median return **{_percent(summary["median_return"])}**. Xác suất tăng là **{_percent(summary["probability_positive_return"])}**, giảm là **{_percent(summary["probability_negative_return"])}**. VaR 95% là **{_percent(summary["var_95"])}**, ES 95% là **{_percent(summary["expected_shortfall_95"])}**, và xác suất maximum drawdown vượt 5% là **{_percent(summary["drawdown_probabilities"]["0.05"])}**.
 
 So với baseline: {superiority.lower()}. Một mô hình có RMSE tốt hơn vẫn có thể nhận diện Bear/Stress kém hoặc tạo interval quá rộng. Kết quả cần được cập nhật khi có dữ liệu mới và không nên dùng đơn lẻ để quyết định giao dịch.
+
+Run experimental đổi RMSE h=20 từ **{before['rmse']:.6f}** xuống **{after['rmse']:.6f}**, coverage 95% từ **{before['coverage_95']:.2%}** lên **{after['coverage_95']:.2%}**, width từ **{before['interval_width_95']:.4f}** lên **{after['interval_width_95']:.4f}**, và VaR exceedance từ **{before['var_exceedance_95']:.2%}** xuống **{after['var_exceedance_95']:.2%}**. Chỉ {int(acceptance['passed'].sum())}/{len(acceptance)} acceptance checks đạt, vì vậy `configs/default.yaml` vẫn giữ A0; kết quả mới nằm ở `configs/experimental.yaml`.
 """
     (root / "reports/executive_summary.md").write_text(executive, encoding="utf-8")

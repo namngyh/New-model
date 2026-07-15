@@ -20,3 +20,14 @@ Workspace ban đầu chỉ có `VNINDEX_Daily.csv`; remote `main` chỉ có mộ
 5. Dự báo điểm, phân loại regime và mô phỏng rủi ro được đánh giá ở các bảng riêng.
 6. Mọi fallback được ghi vào `reports/diagnostics/run_diagnostics.json`.
 
+## Mở rộng experimental ngày 2026-07-15
+
+- A0 được khóa và archive trước khi sửa; không xóa các module đang hoạt động.
+- `point_forecast.py` thêm validation-gated convex center với minimum-improvement và one-standard-error shrinkage.
+- `conformal.py` thêm global/rolling/volatility/regime/joint sequential conformal; score chỉ mature khi `origin + horizon` đã quan sát được.
+- `simulation.py` thêm proportional/equal/Neyman stratification, adaptive stopping, antithetic và control-variate utilities.
+- `importance_sampling.py` dùng transition/shock proposals, log likelihood ratio, ESS và stratified importance sampling; không clipping mặc định.
+- `bootstrap.py` phân biệt inner residual bootstrap với outer stationary-block record bootstrap và cung cấp full-mode checkpoint interface.
+- `jackknife.py` thêm month/quarter/regime-episode/large-drawdown deletion cùng fixed-model feature-importance influence.
+- `tail_head.py` thử ba weighted tail classifiers và hai auxiliary hierarchical heads với sigmoid calibration; production gate dựa hoàn toàn trên validation.
+- Vì nghiệm thu chỉ đạt 7/9 tiêu chí, `default.yaml` vẫn giữ baseline và toàn bộ nâng cấp nằm ở `experimental.yaml`.

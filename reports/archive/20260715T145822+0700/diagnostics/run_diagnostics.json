@@ -1,0 +1,123 @@
+{
+  "data_path": "data/raw/VNINDEX_Daily.csv",
+  "data_range": [
+    "2000-07-28",
+    "2026-07-13"
+  ],
+  "rows": 6306,
+  "features_created": 95,
+  "features_selected": 92,
+  "split_dates": {
+    "train_boundary": "2016-06-07",
+    "test_boundary": "2021-06-22"
+  },
+  "hmm_convergence": true,
+  "egarch_convergence": true,
+  "rf_parameters_by_horizon": {
+    "1": {
+      "n_estimators": 400,
+      "max_depth": 9,
+      "min_samples_leaf": 40,
+      "max_features": "sqrt",
+      "max_samples": 0.8
+    },
+    "5": {
+      "n_estimators": 400,
+      "max_depth": 5,
+      "min_samples_leaf": 30,
+      "max_features": 0.5,
+      "max_samples": 0.8
+    },
+    "10": {
+      "n_estimators": 400,
+      "max_depth": 9,
+      "min_samples_leaf": 40,
+      "max_features": "sqrt",
+      "max_samples": 0.8
+    },
+    "20": {
+      "n_estimators": 400,
+      "max_depth": 7,
+      "min_samples_leaf": 20,
+      "max_features": "sqrt",
+      "max_samples": 0.8
+    },
+    "40": {
+      "n_estimators": 400,
+      "max_depth": 7,
+      "min_samples_leaf": 20,
+      "max_features": "sqrt",
+      "max_samples": 0.8
+    },
+    "60": {
+      "n_estimators": 400,
+      "max_depth": 5,
+      "min_samples_leaf": 30,
+      "max_features": 0.5,
+      "max_samples": 0.8
+    }
+  },
+  "regime_lambdas_by_horizon": {
+    "1": {
+      "lambda_bull": 0.55,
+      "lambda_bear": 0.55,
+      "lambda_stress": 1.1
+    },
+    "5": {
+      "lambda_bull": 0.75,
+      "lambda_bear": 0.75,
+      "lambda_stress": 1.6
+    },
+    "10": {
+      "lambda_bull": 0.75,
+      "lambda_bear": 0.75,
+      "lambda_stress": 1.85
+    },
+    "20": {
+      "lambda_bull": 0.75,
+      "lambda_bear": 0.75,
+      "lambda_stress": 1.6
+    },
+    "40": {
+      "lambda_bull": 0.75,
+      "lambda_bear": 0.75,
+      "lambda_stress": 1.85
+    },
+    "60": {
+      "lambda_bull": 0.75,
+      "lambda_bear": 0.75,
+      "lambda_stress": 1.85
+    }
+  },
+  "calibration_by_horizon": {
+    "1": "sigmoid",
+    "5": "sigmoid",
+    "10": "isotonic",
+    "20": "isotonic",
+    "40": "isotonic",
+    "60": "none"
+  },
+  "simulation_paths": 10000,
+  "selected_block_length": 5,
+  "selected_volatility_on_validation": "historical_volatility",
+  "fallbacks": {
+    "hmm_warnings": [],
+    "egarch_fallback": null,
+    "egarch_warnings": [],
+    "soft_gate_states": {
+      "1": [],
+      "5": [],
+      "10": [],
+      "20": [],
+      "40": [],
+      "60": []
+    },
+    "simulation_regime_pool_fallback_count": 0
+  },
+  "outputs": [
+    "artifacts/forecasts/latest_forecast.csv",
+    "artifacts/forecasts/latest_forecast_summary.json",
+    "artifacts/forecasts/latest_monte_carlo_samples.npz"
+  ],
+  "elapsed_seconds": 851.6371438499991
+}

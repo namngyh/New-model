@@ -14,16 +14,33 @@ from scipy.stats import t
 from sklearn.inspection import permutation_importance
 
 from .baselines import baseline_predictions
-from .bootstrap import choose_block_length
+from .bootstrap import choose_block_length, outer_stationary_bootstrap_quick
 from .calibration import select_temporal_calibration
 from .config import load_config
+from .conformal import (
+    assign_volatility_bins,
+    select_conformal_method,
+    sequential_conformal,
+    signed_lower_quantile,
+    volatility_bin_edges,
+)
 from .data import discover_data_file, validate_and_save
 from .evaluation import classification_metrics, historical_var_tests, interval_metrics, point_metrics
 from .features import build_features, select_train_features
 from .hmm import fit_filtered_hmm
-from .jackknife import block_jackknife_table
+from .importance_sampling import (
+    importance_sensitivity_table,
+    simulate_stratified_importance,
+    simulate_tail_importance,
+)
+from .jackknife import (
+    block_jackknife_table,
+    delete_block_jackknife,
+    feature_importance_delete_block_jackknife,
+)
 from .persistence import run_metadata, save_model, write_json
-from .plotting import generate_all_figures
+from .plotting import generate_advanced_figures, generate_all_figures
+from .point_forecast import CenterSelection, apply_center_blend, select_validation_gated_center
 from .random_forest import (
     fit_forest_bundle,
     fit_soft_gated_forest,
@@ -31,9 +48,15 @@ from .random_forest import (
     predict_soft_gated,
 )
 from .reporting import write_reports
-from .simulation import maximum_drawdown, simulate_paths
+from .simulation import (
+    adaptive_simulate_paths,
+    maximum_drawdown,
+    run_stratified_simulation,
+    simulate_paths,
+)
 from .splits import purged_train_validation_test
 from .statistical_tests import block_bootstrap_difference, diebold_mariano
+from .tail_head import run_tail_head_experiment
 from .targets import CLASS_NAMES, assign_regime_labels, build_targets, select_regime_thresholds
 from .validation import assert_no_target_overlap
 from .volatility import fit_arch_candidate, fit_egarch_student_t
@@ -182,18 +205,16 @@ def _readme(context: dict, root: Path) -> None:
         comparison.groupby("horizon")["rmse_return"].idxmin(),
         ["horizon", "model", "rmse_return", "directional_accuracy"],
     ]
-    main20 = context["per_horizon_metrics"].loc[context["per_horizon_metrics"]["horizon"] == 20].iloc[0]
-    interval95 = (
-        context["interval_metrics"]
-        .loc[(context["interval_metrics"]["horizon"] == 20) & (context["interval_metrics"]["level"] == 0.95)]
-        .iloc[0]
-    )
-    best20 = best[best["horizon"] == 20].iloc[0]
+    before = context["before_after"].iloc[0]
+    after = context["before_after"].iloc[-1]
+    alpha20 = context["point_center_selection"].query("horizon == 20 and selected").iloc[0]
+    acceptance = context["acceptance_results"]
+    selected_conformal = context["selected_conformal_method"]
     readme = f"""# VN-Index Regime-Aware Random Forest và Hybrid Monte Carlo
 
 Tác giả: **Nguyễn Hoài Nam**
 
-Pipeline nghiên cứu tái lập để dự báo riêng lợi suất, mức điểm, trạng thái Bull/Sideway/Bear/Stress và phân phối rủi ro VN-Index. Kiến trúc chính kết hợp Filtered HMM, EGARCH Student-t, soft-gated Random Forest, regime-conditioned block bootstrap, hybrid Monte Carlo và block jackknife.
+Pipeline nghiên cứu tái lập để dự báo lợi suất, mức điểm, trạng thái Bull/Sideway/Bear/Stress và phân phối rủi ro VN-Index. Kiến trúc giữ Filtered HMM, EGARCH Student-t và regime-aware Random Forest, đồng thời thêm validation-gated distribution center, sequential conformal, stratified/importance sampling, adaptive Monte Carlo, outer stationary bootstrap và delete-block jackknife.
 
 > Đây là nghiên cứu định lượng, không phải khuyến nghị đầu tư.
 
@@ -211,14 +232,16 @@ flowchart LR
   C --> E[EGARCH Student-t]
   D --> F[Regime-aware RF]
   E --> F
-  F --> G[Temporal calibration]
+  F --> G[Validation-gated center]
+  G --> Q[Sequential conformal]
   D --> H[Regime path]
   E --> I[Student-t và residual blocks]
-  G --> H
+  Q --> H
   H --> J[Hybrid Monte Carlo]
   I --> J
-  J --> K[VaR ES drawdown intervals]
-  K --> L[Block jackknife và reports]
+  J --> K[Stratified IS và adaptive stopping]
+  K --> L[VaR ES conformal intervals]
+  L --> M[Outer bootstrap và delete-block jackknife]
 ```
 
 Với horizon `h`, `R(t,h)=log(P(t+h)/P(t))` và `P_hat(t+h)=P(t) exp(R_hat(t,h))`. HMM chỉ xuất `P(S_t|F_t)` bằng forward recursion; không dùng smoothed posterior. Split purge bằng `target_end_date_h < boundary` và embargo bằng horizon lớn nhất.
@@ -241,7 +264,11 @@ Các lệnh độc lập: `validate-data`, `train`, `backtest`, `forecast`, `rep
 
 Đây là point metrics; kết quả trạng thái, calibration, interval và tail risk nằm trong `reports/tables/`. Mô hình có RMSE tốt nhất không tự động có recall Bear/Stress hoặc VaR coverage tốt nhất. Kết luận superiority chỉ được chấp nhận khi DM/HAC và block-bootstrap CI hỗ trợ; xem báo cáo để biết kết luận của run này.
 
-Ở h=20, mô hình chính có RMSE **{main20["rmse_return"]:.6f}**, Bear/Stress recall **{main20["recall_bear"]:.2%}/{main20["recall_stress"]:.2%}**, trong khi **{best20["model"]}** có RMSE **{best20["rmse_return"]:.6f}**. Interval 95% chỉ cover **{interval95["coverage"]:.2%}**. Do đó run này **không đủ bằng chứng để kết luận mô hình chính tốt hơn baseline** và tail calibration chưa đạt nominal.
+Ở h=20, A0 RF có RMSE **{before['rmse']:.6f}**; gated distribution center khóa alpha ML **{alpha20['alpha']:.2f}** trên validation và đạt RMSE test **{after['rmse']:.6f}**. Đây là fallback bảo vệ, không phải bằng chứng ML vượt baseline. Sequential conformal chọn **{selected_conformal}**: coverage 95% đổi từ **{before['coverage_95']:.2%}** lên **{after['coverage_95']:.2%}**, width từ **{before['interval_width_95']:.4f}** lên **{after['interval_width_95']:.4f}**, VaR exceedance từ **{before['var_exceedance_95']:.2%}** xuống **{after['var_exceedance_95']:.2%}**. Run đạt **{int(acceptance['passed'].sum())}/{len(acceptance)}** acceptance checks; nếu chưa đạt toàn bộ guardrail thiết yếu thì pipeline mới vẫn là experimental.
+
+## Trạng thái promotion
+
+Các artifacts và báo cáo hiện tại được sinh từ `configs/experimental.yaml`. Vì chỉ đạt {int(acceptance['passed'].sum())}/{len(acceptance)} acceptance checks, `configs/default.yaml` tiếp tục giữ A0 làm baseline production; không có auto-promotion. `configs/full.yaml` chưa được chạy trong lần nghiệm thu này.
 
 ## Forecast 20 phiên mới nhất
 
@@ -266,10 +293,10 @@ Các lệnh độc lập: `validate-data`, `train`, `backtest`, `forecast`, `rep
 
 ## Cấu trúc và tái lập
 
-- `src/vnindex_model/`: module dữ liệu, target, split, HMM, EGARCH, RF, calibration, simulation, bootstrap, jackknife, baseline, evaluation và reporting.
-- `configs/`: quick/default/full với seed, paths và compute budget rõ ràng.
+- `src/vnindex_model/`: thêm `point_forecast.py`, `conformal.py`, `importance_sampling.py`, `tail_head.py`; simulation/bootstrap/jackknife được mở rộng.
+- `configs/`: `default.yaml` khóa A0; `quick.yaml`, `experimental.yaml`, `full.yaml` là các mức compute cho pipeline A1-A9.
 - `artifacts/`: model, metadata, latest forecast và NPZ samples.
-- `reports/`: CSV/Markdown, 36 hình và hai báo cáo tiếng Việt.
+- `reports/`: bảng CSV/Markdown, 53 hình và hai báo cáo tiếng Việt; baseline cũ nằm trong `reports/archive/`.
 - `tests/`: leakage, parser, split, filtered probability, simulation, metric và smoke tests.
 
 Để cập nhật, thay file trong `data/raw/` bằng OHLCV mới, cập nhật `project.data_path` nếu tên đổi và chạy lại `run-all`. Mọi số liệu trong README này được ghi lại từ pipeline; không chỉnh tay sau run.
@@ -286,6 +313,7 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
     root = Path(".").resolve()
     _configure_logging(root / "reports/diagnostics")
     config = load_config(config_path)
+    advanced_enabled = config["project"].get("pipeline_mode", "baseline") == "experimental"
     data_path = Path(config["project"].get("data_path") or discover_data_file(root))
     seed = int(config["project"]["seed"])
     np.random.seed(seed)
@@ -392,6 +420,9 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
     tuning_rows: list[dict] = []
     threshold_rows: list[pd.DataFrame] = []
     prediction_frames: list[pd.DataFrame] = []
+    center_selection_rows: list[pd.DataFrame] = []
+    conformal_selection_rows: list[pd.DataFrame] = []
+    conformal_multiplier_frames: list[pd.DataFrame] = []
     horizon_state: dict[int, dict] = {}
 
     for horizon in horizons:
@@ -560,6 +591,15 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
             }
         )
 
+        validation_baseline = baseline_predictions(
+            data["close"],
+            features["log_return"],
+            y_return,
+            features[selected_technical].to_numpy(),
+            train_index,
+            validation_index,
+            horizon,
+        )
         baseline = baseline_predictions(
             data["close"],
             features["log_return"],
@@ -568,6 +608,39 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
             train_index,
             test_index,
             horizon,
+        )
+        candidate_center_selection = select_validation_gated_center(
+            y_return[validation_index],
+            validation_predictions[selected_model]["return"],
+            validation_baseline["random_walk_drift"],
+            config["point_forecast"]["alpha_grid"],
+            config["point_forecast"]["minimum_relative_improvement"],
+            config["point_forecast"]["use_one_standard_error_rule"],
+            horizon,
+        )
+        if advanced_enabled:
+            center_selection = candidate_center_selection
+        else:
+            baseline_table = candidate_center_selection.validation_table.copy()
+            baseline_table["selected"] = np.isclose(baseline_table["alpha"], 1.0)
+            baseline_table["selection_reason"] = "advanced pipeline disabled; preserve current RF center"
+            center_selection = CenterSelection(
+                1.0,
+                "current_rf_center",
+                "advanced pipeline disabled; preserve current RF center",
+                baseline_table,
+            )
+        center_table = center_selection.validation_table.copy()
+        center_table.insert(0, "horizon", horizon)
+        center_table["selected_center"] = center_selection.selected_center
+        center_selection_rows.append(center_table)
+        validation_center = apply_center_blend(
+            validation_predictions[selected_model]["return"],
+            validation_baseline["random_walk_drift"],
+            center_selection.alpha,
+        )
+        improved_center = apply_center_blend(
+            main_prediction["return"], baseline["random_walk_drift"], center_selection.alpha
         )
         model_returns = {**baseline, **{name: prediction["return"] for name, prediction in test_predictions.items()}}
         state_means = np.array(
@@ -578,6 +651,7 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         )
         model_returns["markov_switching_ar"] = regime_probabilities[test_index] @ state_means
         model_returns["full_hybrid_simulation"] = main_prediction["return"]
+        model_returns["validation_gated_distribution_center"] = improved_center
         actual_return = y_return[test_index]
         actual_price = targets[f"future_price_{horizon}"].to_numpy(dtype=float)[test_index]
         current_price = data["close"].to_numpy(dtype=float)[test_index]
@@ -592,12 +666,18 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
             )
             metrics_by_model[name] = metrics
             comparison_rows.append({"horizon": horizon, "model": name, **metrics})
+        old_point_metrics = metrics_by_model[selected_model]
+        improved_point_metrics = metrics_by_model["validation_gated_distribution_center"]
         horizon_rows.append(
             {
                 "horizon": horizon,
                 "selected_model": selected_model,
+                "distribution_center": center_selection.selected_center,
+                "center_alpha": center_selection.alpha,
+                "center_selection_reason": center_selection.reason,
                 "calibration": calibrator.method,
-                **metrics_by_model[selected_model],
+                **improved_point_metrics,
+                **{f"old_{key}": value for key, value in old_point_metrics.items()},
                 **class_metrics,
                 "n_train": len(train_index),
                 "n_validation": len(validation_index),
@@ -610,9 +690,11 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
                 "date": data["date"].iloc[test_index].to_numpy(),
                 "horizon": horizon,
                 "actual_return": actual_return,
-                "predicted_return": main_prediction["return"],
+                "predicted_return": improved_center,
+                "old_predicted_return": main_prediction["return"],
                 "actual_price": actual_price,
-                "predicted_price": current_price * np.exp(main_prediction["return"]),
+                "predicted_price": current_price * np.exp(improved_center),
+                "old_predicted_price": current_price * np.exp(main_prediction["return"]),
                 "actual_drawdown": y_drawdown[test_index],
                 "predicted_drawdown": main_prediction["drawdown"],
                 "actual_regime": y_class[test_index],
@@ -622,10 +704,58 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         for class_position, class_name in enumerate(CLASS_NAMES):
             prediction_frame[f"probability_{class_name.lower()}"] = calibrated_probability[:, class_position]
         prediction_frames.append(prediction_frame)
+        validation_sigma = (
+            volatility.features["egarch_forecast_volatility"].iloc[validation_index].to_numpy() * np.sqrt(horizon)
+        )
         sigma = volatility.features["egarch_forecast_volatility"].iloc[test_index].to_numpy() * np.sqrt(horizon)
         residual_pool = volatility.standardized_residuals[train_index]
         residual_pool = residual_pool[np.isfinite(residual_pool)]
         nu = float(volatility.diagnostics["nu"])
+        validation_regime = regime_probabilities[validation_index].argmax(axis=1)
+        test_regime = regime_probabilities[test_index].argmax(axis=1)
+        edge_fit_stop = max(int(len(validation_sigma) * 0.60), 1)
+        volatility_edges = volatility_bin_edges(
+            validation_sigma[:edge_fit_stop], config["conformal"]["stratification"]["volatility_bins"]
+        )
+        validation_bins = assign_volatility_bins(validation_sigma, volatility_edges)
+        test_bins = assign_volatility_bins(sigma, volatility_edges)
+        conformal_selection = select_conformal_method(
+            y_return[validation_index],
+            validation_center,
+            validation_sigma,
+            validation_regime,
+            validation_bins,
+            horizon,
+            config["conformal"]["alpha_levels"],
+            config["conformal"]["candidate_windows"],
+            config["conformal"]["minimum_stratum_size"],
+        )
+        conformal_table = conformal_selection.validation_table.copy()
+        conformal_table.insert(0, "horizon", horizon)
+        conformal_table["selection_reason"] = conformal_selection.reason
+        conformal_selection_rows.append(conformal_table)
+        conformal_result = sequential_conformal(
+            y_return[validation_index],
+            validation_center,
+            validation_sigma,
+            validation_regime,
+            validation_bins,
+            actual_return,
+            improved_center,
+            sigma,
+            test_regime,
+            test_bins,
+            horizon,
+            config["conformal"]["alpha_levels"],
+            conformal_selection.method,
+            conformal_selection.window,
+            config["conformal"]["minimum_stratum_size"],
+        )
+        conformal_result.insert(0, "date", data["date"].iloc[test_index].to_numpy())
+        conformal_result.insert(1, "horizon", horizon)
+        conformal_result["method"] = conformal_selection.method
+        conformal_result["window"] = conformal_selection.window
+        conformal_multiplier_frames.append(conformal_result)
         for level in [0.50, 0.80, 0.90, 0.95]:
             alpha = (1 - level) / 2
             standardized_quantile = t.ppf([alpha, 1 - alpha], nu) * np.sqrt((nu - 2) / nu)
@@ -637,29 +767,69 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
                 actual_return, main_prediction["return"], sigma, residual_pool, seed
             )
             interval_rows.append(interval_metric)
+            suffix = str(int(round(level * 100)))
+            if not advanced_enabled:
+                conformal_result[f"lower_{suffix}"] = lower
+                conformal_result[f"upper_{suffix}"] = upper
+                conformal_result[f"multiplier_{suffix}"] = abs(standardized_quantile[1])
+            calibrated_interval = interval_metrics(
+                actual_return,
+                conformal_result[f"lower_{suffix}"],
+                conformal_result[f"upper_{suffix}"],
+                level,
+            )
+            calibrated_interval.update(
+                {
+                    "horizon": horizon,
+                    "method": f"sequential_conformal:{conformal_selection.method}",
+                    "crps": np.nan,
+                }
+            )
+            interval_rows.append(calibrated_interval)
         q95 = t.ppf(0.05, nu) * np.sqrt((nu - 2) / nu)
         q99 = t.ppf(0.01, nu) * np.sqrt((nu - 2) / nu)
-        var95 = main_prediction["return"] + sigma * q95
-        var99 = main_prediction["return"] + sigma * q99
+        old_var95 = main_prediction["return"] + sigma * q95
+        old_var99 = main_prediction["return"] + sigma * q99
+        var95 = conformal_result["var_95"].to_numpy(dtype=float) if advanced_enabled else old_var95
+        validation_signed_scores = (y_return[validation_index] - validation_center) / np.maximum(
+            validation_sigma, 1e-8
+        )
+        signed_cutoff = signed_lower_quantile(validation_signed_scores, 0.05)
+        signed_tail = validation_signed_scores[validation_signed_scores <= signed_cutoff]
+        conformal_es95 = improved_center + sigma * float(np.mean(signed_tail))
+        if not advanced_enabled:
+            conformal_es95 = main_prediction["return"] + sigma * residual_pool[
+                residual_pool <= np.quantile(residual_pool, 0.05)
+            ].mean()
+        var99 = improved_center + sigma * signed_lower_quantile(validation_signed_scores, 0.01)
         one_hot = np.column_stack([(y_class[test_index] == name).astype(int) for name in CLASS_NAMES])
         prediction_frame["brier_loss"] = np.sum((calibrated_probability - one_hot) ** 2, axis=1)
-        prediction_frame["interval_95_covered"] = ((actual_return >= lower) & (actual_return <= upper)).astype(float)
+        prediction_frame["old_interval_95_covered"] = ((actual_return >= lower) & (actual_return <= upper)).astype(float)
+        prediction_frame["old_lower_95"] = lower
+        prediction_frame["old_upper_95"] = upper
+        prediction_frame["interval_95_covered"] = (
+            (actual_return >= conformal_result["lower_95"].to_numpy())
+            & (actual_return <= conformal_result["upper_95"].to_numpy())
+        ).astype(float)
+        for level in [50, 80, 90, 95]:
+            prediction_frame[f"lower_{level}"] = conformal_result[f"lower_{level}"].to_numpy()
+            prediction_frame[f"upper_{level}"] = conformal_result[f"upper_{level}"].to_numpy()
         prediction_frame["var_95"] = var95
-        prediction_frame["expected_shortfall_95"] = (
-            main_prediction["return"] + sigma * residual_pool[residual_pool <= np.quantile(residual_pool, 0.05)].mean()
-        )
+        prediction_frame["old_var_95"] = old_var95
+        prediction_frame["expected_shortfall_95"] = conformal_es95
+        prediction_frame["conformal_method"] = conformal_selection.method
+        prediction_frame["conformal_window"] = conformal_selection.window
         tests95 = historical_var_tests(actual_return, var95, 0.05)
         tests99 = historical_var_tests(actual_return, var99, 0.01)
+        old_tests95 = historical_var_tests(actual_return, old_var95, 0.05)
+        old_tests99 = historical_var_tests(actual_return, old_var99, 0.01)
         tail_rows.append(
             {
                 "horizon": horizon,
                 "var_95_mean": float(var95.mean()),
                 "var_99_mean": float(var99.mean()),
                 "expected_shortfall_95_mean": float(
-                    np.mean(
-                        main_prediction["return"]
-                        + sigma * residual_pool[residual_pool <= np.quantile(residual_pool, 0.05)].mean()
-                    )
+                    np.mean(conformal_es95)
                 ),
                 "expected_shortfall_99_mean": float(
                     np.mean(
@@ -671,13 +841,15 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
                 "realized_max_drawdown_mean": float(y_drawdown[test_index].mean()),
                 **{f"95_{key}": value for key, value in tests95.items()},
                 **{f"99_{key}": value for key, value in tests99.items()},
+                **{f"old_95_{key}": value for key, value in old_tests95.items()},
+                **{f"old_99_{key}": value for key, value in old_tests99.items()},
             }
         )
         for baseline_name, baseline_prediction in baseline.items():
-            dm = diebold_mariano(actual_return, main_prediction["return"], baseline_prediction, horizon)
+            dm = diebold_mariano(actual_return, improved_center, baseline_prediction, horizon)
             bootstrap = block_bootstrap_difference(
                 actual_return,
-                main_prediction["return"],
+                improved_center,
                 baseline_prediction,
                 config["validation"]["bootstrap_reps"],
                 max(5, horizon),
@@ -731,12 +903,26 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
             "augmented_full": augmented_full,
             "tuned_config": tuned_config,
             "selected_lambdas": selected_lambdas,
+            "center_selection": center_selection,
+            "conformal_selection": conformal_selection,
+            "validation_center": validation_center,
+            "improved_center": improved_center,
+            "conformal_result": conformal_result,
+            "validation_sigma": validation_sigma,
+            "test_sigma": sigma,
+            "validation_regime": validation_regime,
+            "validation_bins": validation_bins,
+            "volatility_edges": volatility_edges,
+            "test_regime": test_regime,
+            "test_bins": test_bins,
         }
         _log(
             "horizon_completed",
             horizon=horizon,
             selected_model=selected_model,
             calibration=calibrator.method,
+            center_alpha=center_selection.alpha,
+            conformal_method=conformal_selection.method,
             n_train=len(train_index),
             n_test=len(test_index),
             elapsed_seconds=round(time.perf_counter() - loop_start, 2),
@@ -753,10 +939,97 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
     tuning_table = pd.DataFrame(tuning_rows)
     threshold_table = pd.concat(threshold_rows, ignore_index=True)
     predictions = pd.concat(prediction_frames, ignore_index=True)
+    center_selection_table = pd.concat(center_selection_rows, ignore_index=True)
+    conformal_selection_table = pd.concat(conformal_selection_rows, ignore_index=True)
+    conformal_multiplier_table = pd.concat(conformal_multiplier_frames, ignore_index=True)
     h20 = 20 if 20 in horizon_state else max(horizons)
     state20 = horizon_state[h20]
     records20 = predictions[predictions["horizon"] == h20].reset_index(drop=True)
+    records20["old_center"] = records20["old_predicted_return"]
+    records20["improved_center"] = records20["predicted_return"]
+    records20["conformal_var_95"] = records20["var_95"]
+    records20["conformal_es_95"] = records20["expected_shortfall_95"]
+    conformal_test_rows: list[dict[str, float | int | str | None]] = []
+    conformal_test_outputs: dict[str, pd.DataFrame] = {}
+    h20_validation_candidates = state20["conformal_selection"].validation_table
+    for conformal_method in ["global", "volatility_stratified", "volatility_regime"]:
+        method_candidates = h20_validation_candidates[h20_validation_candidates["method"] == conformal_method]
+        best_candidate = method_candidates.loc[method_candidates["objective"].idxmin()]
+        method_window = None if pd.isna(best_candidate["window"]) else int(best_candidate["window"])
+        method_result = sequential_conformal(
+            targets[f"forward_return_{h20}"].to_numpy()[state20["validation_index"]],
+            state20["validation_center"],
+            state20["validation_sigma"],
+            state20["validation_regime"],
+            state20["validation_bins"],
+            targets[f"forward_return_{h20}"].to_numpy()[state20["test_index"]],
+            state20["improved_center"],
+            state20["test_sigma"],
+            state20["test_regime"],
+            state20["test_bins"],
+            h20,
+            config["conformal"]["alpha_levels"],
+            conformal_method,
+            method_window,
+            config["conformal"]["minimum_stratum_size"],
+        )
+        conformal_test_outputs[conformal_method] = method_result
+        method_interval = interval_metrics(
+            targets[f"forward_return_{h20}"].to_numpy()[state20["test_index"]],
+            method_result["lower_95"],
+            method_result["upper_95"],
+            0.95,
+        )
+        method_var = historical_var_tests(
+            targets[f"forward_return_{h20}"].to_numpy()[state20["test_index"]], method_result["var_95"], 0.05
+        )
+        conformal_test_rows.append(
+            {
+                "method": conformal_method,
+                "window": method_window,
+                **method_interval,
+                **method_var,
+                "selected_on_validation": conformal_method == state20["conformal_selection"].method
+                and method_window == state20["conformal_selection"].window,
+            }
+        )
+    conformal_test_comparison = pd.DataFrame(conformal_test_rows)
     jackknife_table = block_jackknife_table(records20)
+    delete_jackknife_table = delete_block_jackknife(records20)
+    if config["outer_bootstrap"]["mode"] == "quick":
+        outer_bootstrap_summary, outer_bootstrap_replicates = outer_stationary_bootstrap_quick(
+            records20,
+            config["outer_bootstrap"]["replications_quick"],
+            config["outer_bootstrap"]["mean_block_length"],
+            seed,
+        )
+        effective_outer_bootstrap_mode = "quick_oos_record_stationary_blocks"
+    else:
+        outer_bootstrap_summary, outer_bootstrap_replicates = outer_stationary_bootstrap_quick(
+            records20,
+            config["outer_bootstrap"]["replications_quick"],
+            config["outer_bootstrap"]["mean_block_length"],
+            seed,
+        )
+        effective_outer_bootstrap_mode = "quick_fallback_full_refit_not_executed"
+        _log(
+            "outer_bootstrap_fallback",
+            requested="full",
+            effective=effective_outer_bootstrap_mode,
+            reason="full refit configuration was not executed in this run",
+        )
+    tail_head_table, tail_head_probability, tail_head_summary = run_tail_head_experiment(
+        state20["augmented_full"].iloc[state20["train_index"]],
+        state20["y_class"][state20["train_index"]],
+        state20["augmented_full"].iloc[state20["validation_index"]],
+        state20["y_class"][state20["validation_index"]],
+        state20["augmented_full"].iloc[state20["test_index"]],
+        state20["y_class"][state20["test_index"]],
+        seed,
+        config["tail_head"]["n_estimators"],
+        config["tail_head"]["minimum_precision"],
+    )
+    records20["experimental_tail_probability"] = tail_head_probability
     requested_jackknife_mode = config["jackknife"]["mode"]
     if requested_jackknife_mode == "full":
         effective_jackknife_mode = "quick_fallback_full_refit_not_executed"
@@ -852,27 +1125,191 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         latest_prediction = predict_bundle(full_global, full_augmented.iloc[[-1]])
         final_model = full_global
     latest_probability = state20["calibrator"].transform(latest_prediction["probabilities"])[0]
+    production_drift_horizon = (
+        np.log(float(data["close"].iloc[-1]) / float(data["close"].iloc[0])) / max(len(data) - 1, 1) * h20
+    )
+    latest_center_horizon = float(
+        apply_center_blend(
+            latest_prediction["return"],
+            np.array([production_drift_horizon]),
+            state20["center_selection"].alpha,
+        )[0]
+    )
+    latest_sigma_horizon = float(full_volatility.features["egarch_forecast_volatility"].iloc[-1] * np.sqrt(h20))
+    latest_state = int(full_hmm.probabilities[full_hmm_columns].iloc[-1].to_numpy().argmax())
+    latest_bin = int(assign_volatility_bins(np.array([latest_sigma_horizon]), state20["volatility_edges"])[0])
+    latest_conformal = sequential_conformal(
+        targets[f"forward_return_{h20}"].to_numpy()[state20["validation_index"]],
+        state20["validation_center"],
+        state20["validation_sigma"],
+        state20["validation_regime"],
+        state20["validation_bins"],
+        np.array([latest_center_horizon]),
+        np.array([latest_center_horizon]),
+        np.array([latest_sigma_horizon]),
+        np.array([latest_state]),
+        np.array([latest_bin]),
+        h20,
+        config["conformal"]["alpha_levels"],
+        state20["conformal_selection"].method,
+        state20["conformal_selection"].window,
+        config["conformal"]["minimum_stratum_size"],
+    )
+    nominal_multiplier = abs(
+        float(t.ppf(0.975, full_volatility.diagnostics["nu"]) * np.sqrt((full_volatility.diagnostics["nu"] - 2) / full_volatility.diagnostics["nu"]))
+    )
+    conformal_scale = (
+        float(latest_conformal["multiplier_95"].iloc[0] / max(nominal_multiplier, 1e-8))
+        if advanced_enabled
+        else 1.0
+    )
+    calibrated_daily_volatility = float(
+        full_volatility.features["egarch_forecast_volatility"].iloc[-1] * conformal_scale
+    )
+    simulation_kwargs = {
+        "last_close": float(data["close"].iloc[-1]),
+        "horizon": config["simulation"]["horizon"],
+        "daily_drift": latest_center_horizon / h20,
+        "daily_volatility": calibrated_daily_volatility,
+        "degrees_of_freedom": float(full_volatility.diagnostics["nu"]),
+        "residuals": full_volatility.standardized_residuals,
+        "historical_regime_probabilities": full_hmm.probabilities[full_hmm_columns].to_numpy(),
+        "transition_matrix": full_hmm.transition_matrix,
+        "current_regime_probability": full_hmm.probabilities[full_hmm_columns].iloc[-1].to_numpy(),
+        "rf_class_probability": latest_probability,
+        "economic_labels": full_hmm.economic_labels,
+        "student_weight": config["simulation"]["student_weight"],
+        "block_length": selected_block_length,
+        "seed": seed,
+    }
     simulation_results = {}
-    for method in ["student_t", "regime_block_bootstrap", "hybrid"]:
+    for method in ["student_t", "regime_block_bootstrap"]:
+        kwargs = dict(simulation_kwargs)
+        kwargs["method"] = method
         simulation_results["bootstrap" if method == "regime_block_bootstrap" else method] = simulate_paths(
-            float(data["close"].iloc[-1]),
-            config["simulation"]["horizon"],
-            config["simulation"]["paths"],
-            float(latest_prediction["return"][0] / h20),
-            float(full_volatility.features["egarch_forecast_volatility"].iloc[-1]),
-            float(full_volatility.diagnostics["nu"]),
-            full_volatility.standardized_residuals,
-            full_hmm.probabilities[full_hmm_columns].to_numpy(),
-            full_hmm.transition_matrix,
-            full_hmm.probabilities[full_hmm_columns].iloc[-1].to_numpy(),
-            latest_probability,
-            full_hmm.economic_labels,
-            method=method,
-            student_weight=config["simulation"]["student_weight"],
-            block_length=selected_block_length,
-            seed=seed,
+            paths=config["simulation"]["paths"], **kwargs
         )
-    hybrid = simulation_results["hybrid"]
+    hybrid_kwargs = dict(simulation_kwargs)
+    hybrid_kwargs["method"] = "hybrid"
+    if config["simulation"]["adaptive_stopping"]["enabled"]:
+        hybrid, convergence_history = adaptive_simulate_paths(
+            float(data["close"].iloc[-1]),
+            full_hmm.economic_labels,
+            hybrid_kwargs,
+            config["simulation"]["adaptive_stopping"],
+        )
+    else:
+        hybrid = simulate_paths(paths=config["simulation"]["paths"], **hybrid_kwargs)
+        convergence_history = pd.DataFrame()
+    simulation_results["hybrid"] = hybrid
+    stratified_started = time.perf_counter()
+    stratified_result = run_stratified_simulation(
+        len(hybrid.return_paths),
+        config["simulation"]["stratified"]["allocation"],
+        config["simulation"]["stratified"]["pilot_paths"],
+        config["simulation"]["stratified"]["minimum_paths_per_regime"],
+        hybrid_kwargs,
+    )
+    stratified_runtime = time.perf_counter() - stratified_started
+    importance_config = config["simulation"]["importance_sampling"]
+    importance_paths = int(importance_config["paths"])
+    importance_common = {
+        "paths": importance_paths,
+        "horizon": config["simulation"]["horizon"],
+        "daily_drift": latest_center_horizon / h20,
+        "daily_volatility": calibrated_daily_volatility,
+        "residuals": full_volatility.standardized_residuals,
+        "transition_matrix": full_hmm.transition_matrix,
+        "current_regime_probability": full_hmm.probabilities[full_hmm_columns].iloc[-1].to_numpy(),
+        "economic_labels": full_hmm.economic_labels,
+        "seed": seed,
+    }
+    naive_started = time.perf_counter()
+    naive_tail = simulate_tail_importance(transition_strength=0.0, shock_strength=0.0, **importance_common)
+    naive_runtime = time.perf_counter() - naive_started
+    importance_results = []
+    for strength in importance_config["proposal_strengths"]:
+        importance_results.append(
+            simulate_tail_importance(
+                transition_strength=float(strength),
+                shock_strength=float(strength) * importance_config["shock_strength_ratio"],
+                **importance_common,
+            )
+        )
+    importance_sensitivity = importance_sensitivity_table(importance_results)
+    naive_mcse = float(naive_tail.diagnostics["mcse_mdd_7"])
+    importance_sensitivity["variance_reduction_ratio_mdd_7"] = np.square(naive_mcse) / np.maximum(
+        np.square(importance_sensitivity["mcse_mdd_7"]), 1e-18
+    )
+    importance_sensitivity["ess_accepted"] = (
+        importance_sensitivity["ess_ratio"] >= importance_config["minimum_ess_ratio"]
+    )
+    accepted_importance = importance_sensitivity[importance_sensitivity["ess_accepted"]]
+    if len(accepted_importance):
+        importance_index = accepted_importance["variance_reduction_ratio_mdd_7"].idxmax()
+        importance_acceptance_reason = "ESS gate passed; selected highest MDD-7 variance reduction"
+    else:
+        importance_index = importance_sensitivity["ess_ratio"].idxmax()
+        importance_acceptance_reason = "all proposals rejected by ESS/N gate; retained for sensitivity only"
+    importance_sensitivity["selected"] = importance_sensitivity.index == importance_index
+    selected_importance = importance_results[int(importance_index)]
+    selected_strength = float(importance_sensitivity.loc[importance_index, "transition_strength"])
+    stratified_importance = simulate_stratified_importance(
+        paths=importance_paths,
+        current_regime_probability=importance_common["current_regime_probability"],
+        minimum_paths_per_regime=config["simulation"]["stratified"]["minimum_paths_per_regime"],
+        horizon=config["simulation"]["horizon"],
+        daily_drift=latest_center_horizon / h20,
+        daily_volatility=calibrated_daily_volatility,
+        residuals=full_volatility.standardized_residuals,
+        transition_matrix=full_hmm.transition_matrix,
+        economic_labels=full_hmm.economic_labels,
+        transition_strength=selected_strength,
+        shock_strength=selected_strength * importance_config["shock_strength_ratio"],
+        seed=seed,
+    )
+    simulation_efficiency = pd.DataFrame(
+        [
+            {
+                "method": "naive_monte_carlo",
+                **naive_tail.estimates,
+                **naive_tail.diagnostics,
+                "runtime_seconds": naive_runtime,
+                "variance_reduction_ratio_mdd_7": 1.0,
+            },
+            {
+                "method": "stratified_monte_carlo",
+                **stratified_result.estimates,
+                "paths": len(stratified_result.terminal_returns),
+                "ess": len(stratified_result.terminal_returns),
+                "ess_ratio": 1.0,
+                "mcse_mdd_7": float(
+                    np.sqrt(
+                        stratified_result.estimates["probability_mdd_7"]
+                        * (1 - stratified_result.estimates["probability_mdd_7"])
+                        / len(stratified_result.terminal_returns)
+                    )
+                ),
+                "runtime_seconds": stratified_runtime,
+            },
+            {
+                "method": "importance_sampling",
+                **selected_importance.estimates,
+                **selected_importance.diagnostics,
+                "variance_reduction_ratio_mdd_7": float(
+                    importance_sensitivity.loc[importance_index, "variance_reduction_ratio_mdd_7"]
+                ),
+            },
+            {
+                "method": "stratified_importance_sampling",
+                **stratified_importance.estimates,
+                **stratified_importance.diagnostics,
+                "variance_reduction_ratio_mdd_7": float(
+                    np.square(naive_mcse) / max(np.square(stratified_importance.diagnostics["mcse_mdd_7"]), 1e-18)
+                ),
+            },
+        ]
+    )
     forecast = hybrid.forecast.copy()
     future_dates = pd.bdate_range(pd.Timestamp(data["date"].iloc[-1]) + pd.offsets.BDay(1), periods=len(forecast))
     forecast.insert(1, "estimated_trading_date", future_dates.strftime("%Y-%m-%d"))
@@ -895,8 +1332,27 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
             "seed_terminal_return_std": float(seed_stability["mean_signed_error"].std()),
             "terminal_95_interval_width": float(forecast["upper_95"].iloc[-1] - forecast["lower_95"].iloc[-1]),
         },
+        "point_center": {
+            "mode": state20["center_selection"].selected_center,
+            "alpha": state20["center_selection"].alpha,
+            "horizon_return": latest_center_horizon,
+        },
+        "conformal": {
+            "method": state20["conformal_selection"].method,
+            "window": state20["conformal_selection"].window,
+            "latest_multiplier_95": float(latest_conformal["multiplier_95"].iloc[0]),
+            "volatility_scale": conformal_scale,
+        },
+        "importance_sampling": {
+            "acceptance_reason": importance_acceptance_reason,
+            "ess": float(selected_importance.diagnostics["ess"]),
+            "ess_ratio": float(selected_importance.diagnostics["ess_ratio"]),
+            "variance_reduction_ratio_mdd_7": float(
+                importance_sensitivity.loc[importance_index, "variance_reduction_ratio_mdd_7"]
+            ),
+        },
         "data_hash": quality["sha256"],
-        "model_version": "1.0.0",
+        "model_version": "1.1.0-experimental",
         "trading_date_note": "Ngày làm việc gần đúng; chưa loại ngày nghỉ chính thức HOSE.",
     }
     write_json(root / "artifacts/forecasts/latest_forecast_summary.json", latest_summary)
@@ -942,6 +1398,181 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         .sort_values("importance", ascending=False)
         .reset_index(drop=True)
     )
+    transformed_test_features = main_bundle.imputer.transform(
+        state20["augmented_full"].iloc[state20["test_index"]][main_bundle.feature_names]
+    )
+    feature_jackknife_table = feature_importance_delete_block_jackknife(
+        records20,
+        transformed_test_features,
+        targets[f"forward_return_{h20}"].to_numpy()[state20["test_index"]],
+        main_bundle.return_regressor.predict,
+        main_bundle.feature_names,
+        importance.head(5)["feature"].tolist(),
+        seed,
+    )
+    actual20 = records20["actual_return"].to_numpy(dtype=float)
+    old_half_width = (records20["old_upper_95"] - records20["old_lower_95"]).to_numpy(dtype=float) / 2
+    a1_lower = records20["improved_center"].to_numpy(dtype=float) - old_half_width
+    a1_upper = records20["improved_center"].to_numpy(dtype=float) + old_half_width
+    a1_var = records20["improved_center"].to_numpy(dtype=float) + (
+        records20["old_var_95"] - records20["old_center"]
+    ).to_numpy(dtype=float)
+    old_interval = interval_metrics(actual20, records20["old_lower_95"], records20["old_upper_95"], 0.95)
+    a1_interval = interval_metrics(actual20, a1_lower, a1_upper, 0.95)
+    selected_interval = interval_metrics(actual20, records20["lower_95"], records20["upper_95"], 0.95)
+    old_var_rate = float(np.mean(actual20 < records20["old_var_95"].to_numpy(dtype=float)))
+    a1_var_rate = float(np.mean(actual20 < a1_var))
+    selected_var_rate = float(np.mean(actual20 < records20["var_95"].to_numpy(dtype=float)))
+    old_rmse = float(np.sqrt(np.mean(np.square(actual20 - records20["old_center"].to_numpy(dtype=float)))))
+    improved_rmse = float(
+        np.sqrt(np.mean(np.square(actual20 - records20["improved_center"].to_numpy(dtype=float))))
+    )
+    old_mae = float(np.mean(np.abs(actual20 - records20["old_center"].to_numpy(dtype=float))))
+    improved_mae = float(np.mean(np.abs(actual20 - records20["improved_center"].to_numpy(dtype=float))))
+    before_after = pd.DataFrame(
+        [
+            {
+                "stage": "A0_current_model",
+                "rmse": old_rmse,
+                "mae": old_mae,
+                "coverage_95": old_interval["coverage"],
+                "interval_width_95": old_interval["average_width"],
+                "interval_score_95": old_interval["interval_score"],
+                "var_exceedance_95": old_var_rate,
+            },
+            {
+                "stage": "A9_complete_experimental_pipeline",
+                "rmse": improved_rmse,
+                "mae": improved_mae,
+                "coverage_95": selected_interval["coverage"],
+                "interval_width_95": selected_interval["average_width"],
+                "interval_score_95": selected_interval["interval_score"],
+                "var_exceedance_95": selected_var_rate,
+            },
+        ]
+    )
+
+    def ablation_row(stage: str, components: str, interval: dict, var_rate: float, **extra) -> dict:
+        return {
+            "stage": stage,
+            "components": components,
+            "horizon": h20,
+            "rmse": improved_rmse if stage != "A0" else old_rmse,
+            "mae": improved_mae if stage != "A0" else old_mae,
+            "coverage_95": interval["coverage"],
+            "interval_width_95": interval["average_width"],
+            "interval_score_95": interval["interval_score"],
+            "var_exceedance_95": var_rate,
+            **extra,
+        }
+
+    global_test = conformal_test_comparison.set_index("method").loc["global"]
+    volatility_test = conformal_test_comparison.set_index("method").loc["volatility_stratified"]
+    joint_test = conformal_test_comparison.set_index("method").loc["volatility_regime"]
+    ablation_pipeline = pd.DataFrame(
+        [
+            ablation_row("A0", "current repository model", old_interval, old_var_rate),
+            ablation_row("A1", "baseline-gated center", a1_interval, a1_var_rate),
+            ablation_row("A2", "A1 + global conformal", global_test.to_dict(), global_test["var_exceedance_rate"]),
+            ablation_row(
+                "A3",
+                "A1 + volatility conformal",
+                volatility_test.to_dict(),
+                volatility_test["var_exceedance_rate"],
+            ),
+            ablation_row(
+                "A4",
+                "A1 + volatility/regime conformal",
+                joint_test.to_dict(),
+                joint_test["var_exceedance_rate"],
+            ),
+            ablation_row(
+                "A5",
+                "A4 + stratified Monte Carlo",
+                selected_interval,
+                selected_var_rate,
+                mcse_mdd_7=float(simulation_efficiency.loc[simulation_efficiency["method"] == "stratified_monte_carlo", "mcse_mdd_7"].iloc[0]),
+            ),
+            ablation_row(
+                "A6",
+                "A5 + importance sampling",
+                selected_interval,
+                selected_var_rate,
+                ess_ratio=float(selected_importance.diagnostics["ess_ratio"]),
+                variance_reduction_ratio=float(importance_sensitivity.loc[importance_index, "variance_reduction_ratio_mdd_7"]),
+            ),
+            ablation_row(
+                "A7",
+                "A6 + adaptive stopping",
+                selected_interval,
+                selected_var_rate,
+                simulation_paths=len(hybrid.return_paths),
+                stopping_reason=hybrid.summary.get("stopping_reason", "fixed"),
+            ),
+            ablation_row(
+                "A8",
+                "A7 + outer stationary block bootstrap",
+                selected_interval,
+                selected_var_rate,
+                outer_bootstrap_mode=effective_outer_bootstrap_mode,
+            ),
+            ablation_row(
+                "A9",
+                "complete + delete-block jackknife",
+                selected_interval,
+                selected_var_rate,
+                maximum_absolute_jackknife_influence=float(delete_jackknife_table["absolute_influence"].max()),
+            ),
+        ]
+    )
+    coverage_bootstrap = outer_bootstrap_summary.set_index("metric").loc["coverage_improvement"]
+    rmse_bootstrap = outer_bootstrap_summary.set_index("metric").loc["rmse_difference_new_minus_old"]
+    selected_is_row = importance_sensitivity.loc[importance_index]
+    acceptance_table = pd.DataFrame(
+        [
+            {"criterion": "h20 RMSE <= 0.05733", "value": improved_rmse, "passed": improved_rmse <= 0.05733},
+            {
+                "criterion": "95% coverage in [92.5%, 97.5%]",
+                "value": selected_interval["coverage"],
+                "passed": 0.925 <= selected_interval["coverage"] <= 0.975,
+            },
+            {
+                "criterion": "VaR95 exceedance in [3%, 7%]",
+                "value": selected_var_rate,
+                "passed": 0.03 <= selected_var_rate <= 0.07,
+            },
+            {
+                "criterion": "coverage improvement block-bootstrap CI above zero",
+                "value": coverage_bootstrap["ci_lower"],
+                "passed": coverage_bootstrap["ci_lower"] > 0,
+            },
+            {
+                "criterion": "importance variance reduction >= 30%",
+                "value": selected_is_row["variance_reduction_ratio_mdd_7"],
+                "passed": selected_is_row["variance_reduction_ratio_mdd_7"] >= 1.30,
+            },
+            {
+                "criterion": "importance ESS/N >= 20%",
+                "value": selected_is_row["ess_ratio"],
+                "passed": selected_is_row["ess_ratio"] >= 0.20,
+            },
+            {
+                "criterion": "interval score deterioration <= 5%",
+                "value": selected_interval["interval_score"] / old_interval["interval_score"] - 1,
+                "passed": selected_interval["interval_score"] <= old_interval["interval_score"] * 1.05,
+            },
+            {
+                "criterion": "new RMSE block-bootstrap upper difference <= 0",
+                "value": rmse_bootstrap["ci_upper"],
+                "passed": rmse_bootstrap["ci_upper"] <= 0,
+            },
+            {
+                "criterion": "tail head validation production gates",
+                "value": tail_head_summary["selected_candidate"],
+                "passed": tail_head_summary["production_enabled"],
+            },
+        ]
+    )
     tables = {
         "model_comparison": model_comparison,
         "per_horizon_metrics": per_horizon,
@@ -951,6 +1582,22 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         "tail_risk_metrics": tail_metric_table,
         "statistical_tests": statistical_table,
         "ablation_results": ablation_table,
+        "advanced_ablation": ablation_pipeline,
+        "before_after_metrics": before_after,
+        "acceptance_results": acceptance_table,
+        "point_center_selection": center_selection_table,
+        "conformal_selection": conformal_selection_table,
+        "conformal_test_comparison": conformal_test_comparison,
+        "conformal_multiplier_history": conformal_multiplier_table,
+        "adaptive_convergence": convergence_history,
+        "stratified_allocation": stratified_result.allocation,
+        "importance_sampling_sensitivity": importance_sensitivity,
+        "simulation_efficiency": simulation_efficiency,
+        "outer_bootstrap_summary": outer_bootstrap_summary,
+        "outer_bootstrap_replicates": outer_bootstrap_replicates,
+        "delete_block_jackknife": delete_jackknife_table,
+        "feature_importance_jackknife": feature_jackknife_table,
+        "tail_head_experiment": tail_head_table,
         "seed_stability": seed_stability,
         "seed_stability_summary": seed_summary,
         "latest_forecast_summary": pd.DataFrame(
@@ -998,7 +1645,25 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         },
         "calibration_by_horizon": per_horizon.set_index("horizon")["calibration"].to_dict(),
         "simulation_paths": config["simulation"]["paths"],
+        "adaptive_simulation_paths": len(hybrid.return_paths),
         "selected_block_length": selected_block_length,
+        "point_center_alpha_by_horizon": per_horizon.set_index("horizon")["center_alpha"].to_dict(),
+        "conformal_by_horizon": {
+            str(horizon): {
+                "method": state["conformal_selection"].method,
+                "window": state["conformal_selection"].window,
+            }
+            for horizon, state in horizon_state.items()
+        },
+        "importance_sampling": {
+            "acceptance_reason": importance_acceptance_reason,
+            "ess_ratio": float(selected_importance.diagnostics["ess_ratio"]),
+            "variance_reduction_ratio_mdd_7": float(
+                importance_sensitivity.loc[importance_index, "variance_reduction_ratio_mdd_7"]
+            ),
+        },
+        "outer_bootstrap_mode": effective_outer_bootstrap_mode,
+        "tail_head": tail_head_summary,
         "selected_volatility_on_validation": selected_volatility_name,
         "fallbacks": {
             "hmm_warnings": hmm_result.diagnostics["warnings"],
@@ -1007,6 +1672,7 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
             "soft_gate_states": {str(h): state["soft"].fallback_states for h, state in horizon_state.items()},
             "simulation_regime_pool_fallback_count": hybrid.summary["regime_pool_fallback_count"],
             "jackknife_mode": effective_jackknife_mode,
+            "outer_bootstrap_mode": effective_outer_bootstrap_mode,
         },
         "outputs": [
             "artifacts/forecasts/latest_forecast.csv",
@@ -1041,6 +1707,24 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         "test_feature_frame": augmented_full.iloc[state20["test_index"]].reset_index(drop=True),
     }
     figure_names = generate_all_figures(plot_context, root / "reports/figures")
+    advanced_figure_names = generate_advanced_figures(
+        {
+            "before_after": before_after,
+            "conformal_test_comparison": conformal_test_comparison,
+            "conformal_multiplier_history": conformal_multiplier_table,
+            "records20": records20,
+            "adaptive_convergence": convergence_history,
+            "importance_sensitivity": importance_sensitivity,
+            "simulation_efficiency": simulation_efficiency,
+            "outer_bootstrap_summary": outer_bootstrap_summary,
+            "delete_jackknife": delete_jackknife_table,
+            "point_center_selection": center_selection_table,
+            "advanced_ablation": ablation_pipeline,
+            "importance_log_weights": selected_importance.log_weights,
+        },
+        root / "reports/figures",
+    )
+    figure_names.extend(advanced_figure_names)
     report_context = {
         "quality": quality,
         "latest_summary": latest_summary,
@@ -1068,6 +1752,20 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
         "horizons": horizons,
         "embargo": config["data"]["embargo"],
         "jackknife_mode": effective_jackknife_mode,
+        "before_after": before_after,
+        "acceptance_results": acceptance_table,
+        "point_center_selection": center_selection_table,
+        "conformal_selection": conformal_selection_table,
+        "conformal_test_comparison": conformal_test_comparison,
+        "selected_conformal_method": state20["conformal_selection"].method,
+        "simulation_efficiency": simulation_efficiency,
+        "outer_bootstrap_summary": outer_bootstrap_summary,
+        "delete_block_jackknife": delete_jackknife_table,
+        "tail_head_experiment": tail_head_table,
+        "tail_head_summary": tail_head_summary,
+        "advanced_ablation": ablation_pipeline,
+        "pipeline_mode": config["project"].get("pipeline_mode", "baseline"),
+        "config_path": config["_config_path"],
     }
     write_reports(report_context, root)
     _readme({**report_context, "model_comparison": model_comparison}, root)

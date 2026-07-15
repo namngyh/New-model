@@ -1,18 +1,39 @@
 project:
   seed: 55
-  seeds: [11, 22, 33, 44, 55]
+  pipeline_mode: experimental
+  seeds:
+  - 11
+  - 22
+  - 33
+  - 44
+  - 55
   data_path: data/raw/VNINDEX_Daily.csv
   output_root: .
 data:
-  train_fraction: 0.60
-  validation_fraction: 0.20
-  horizons: [1, 5, 10, 20, 40, 60]
+  train_fraction: 0.6
+  validation_fraction: 0.2
+  horizons:
+  - 1
+  - 5
+  - 10
+  - 20
+  - 40
+  - 60
   embargo: 60
 features:
   correlation_threshold: 0.995
 hmm:
-  candidate_states: [2, 3, 4, 5]
-  seeds: [11, 22, 33, 44, 55]
+  candidate_states:
+  - 2
+  - 3
+  - 4
+  - 5
+  seeds:
+  - 11
+  - 22
+  - 33
+  - 44
+  - 55
   n_iter: 160
 egarch:
   enabled: true
@@ -22,14 +43,95 @@ random_forest:
   min_samples_leaf: 20
   max_features: sqrt
   max_samples: 0.8
+point_forecast:
+  mode: validation_gated_blend
+  alpha_grid:
+  - 0.0
+  - 0.05
+  - 0.1
+  - 0.15
+  - 0.2
+  - 0.25
+  - 0.3
+  - 0.35
+  - 0.4
+  - 0.45
+  - 0.5
+  - 0.55
+  - 0.6
+  - 0.65
+  - 0.7
+  - 0.75
+  - 0.8
+  - 0.85
+  - 0.9
+  - 0.95
+  - 1.0
+  primary_metric: rmse
+  minimum_relative_improvement: 0.01
+  use_one_standard_error_rule: true
+conformal:
+  enabled: true
+  alpha_levels:
+  - 0.5
+  - 0.2
+  - 0.1
+  - 0.05
+  candidate_windows:
+  - 250
+  - 500
+  - null
+  stratification:
+    volatility_bins: 3
+    use_regime: true
+  minimum_stratum_size: 80
+  finite_sample_correction: true
+  horizon_label_delay: true
 simulation:
   paths: 10000
   horizon: 20
   block_length: 10
   student_weight: 0.35
   sample_paths: 150
+  stratified:
+    enabled: true
+    allocation: neyman
+    pilot_paths: 2000
+    minimum_paths_per_regime: 500
+  importance_sampling:
+    enabled: true
+    paths: 20000
+    proposal_strengths:
+    - 0.1
+    - 0.2
+    - 0.3
+    shock_strength_ratio: 0.5
+    minimum_ess_ratio: 0.2
+  adaptive_stopping:
+    enabled: true
+    batch_size: 2000
+    minimum_paths: 10000
+    maximum_paths: 40000
+    probability_mcse_tolerance: 0.0025
+    rare_probability_relative_mcse: 0.1
+    quantile_stability_tolerance: 0.001
+    consecutive_stable_batches: 3
+  variance_reduction_experiments:
+    antithetic_enabled: false
+    control_variate_enabled: false
 validation:
   folds: 2
   bootstrap_reps: 1000
 jackknife:
   mode: quick
+outer_bootstrap:
+  enabled: true
+  mode: quick
+  replications_quick: 2000
+  replications_full: 100
+  mean_block_length: 20
+  parallel_jobs: -1
+tail_head:
+  enabled: true
+  n_estimators: 300
+  minimum_precision: 0.25

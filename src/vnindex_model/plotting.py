@@ -325,3 +325,142 @@ def generate_all_figures(context: dict, output_dir: str | Path = "reports/figure
     ax.set(title="Forecast mới nhất 20 phiên")
     save(fig, "36_latest_forecast", True)
     return names
+
+
+def generate_advanced_figures(context: dict, output_dir: str | Path = "reports/figures") -> list[str]:
+    """Create calibration and numerical-efficiency figures from experiment tables."""
+    root = Path(output_dir)
+    before_after: pd.DataFrame = context["before_after"]
+    conformal: pd.DataFrame = context["conformal_test_comparison"]
+    multiplier: pd.DataFrame = context["conformal_multiplier_history"]
+    records: pd.DataFrame = context["records20"]
+    convergence: pd.DataFrame = context["adaptive_convergence"]
+    sensitivity: pd.DataFrame = context["importance_sensitivity"]
+    efficiency: pd.DataFrame = context["simulation_efficiency"]
+    outer: pd.DataFrame = context["outer_bootstrap_summary"]
+    jackknife: pd.DataFrame = context["delete_jackknife"]
+    alpha: pd.DataFrame = context["point_center_selection"]
+    ablation: pd.DataFrame = context["advanced_ablation"]
+    log_weights = np.asarray(context["importance_log_weights"], dtype=float)
+    names: list[str] = []
+
+    def save(fig, name):
+        _save(fig, root, name)
+        names.append(name)
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(before_after["stage"], before_after["coverage_95"])
+    ax.axhspan(0.925, 0.975, alpha=0.15, color="green", label="Acceptance")
+    ax.axhline(0.95, color="black", ls="--")
+    ax.tick_params(axis="x", rotation=20)
+    ax.set(title="Before/after 95% interval coverage", ylabel="Coverage")
+    ax.legend()
+    save(fig, "37_before_after_coverage")
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.scatter(conformal["average_width"], conformal["coverage"], s=70)
+    for row in conformal.itertuples():
+        ax.annotate(row.method, (row.average_width, row.coverage), fontsize=8)
+    ax.axhline(0.95, color="black", ls="--")
+    ax.set(title="Coverage-width frontier", xlabel="Average width", ylabel="Coverage")
+    save(fig, "38_coverage_width_frontier")
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(conformal["method"], conformal["interval_score"])
+    ax.tick_params(axis="x", rotation=25)
+    ax.set(title="Interval score theo conformal method", ylabel="Interval score")
+    save(fig, "39_conformal_interval_score")
+
+    h20_multiplier = multiplier[multiplier["horizon"] == 20]
+    fig, ax = plt.subplots(figsize=(11, 4))
+    ax.plot(pd.to_datetime(h20_multiplier["date"]), h20_multiplier["multiplier_95"], lw=0.8)
+    ax.set(title="Sequential conformal multiplier 95%", ylabel="Multiplier")
+    save(fig, "40_sequential_conformal_multiplier")
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    h20_multiplier.boxplot(column="multiplier_95", by="volatility_bin", ax=ax)
+    fig.suptitle("")
+    ax.set(title="Conformal multiplier theo volatility stratum", xlabel="Volatility bin", ylabel="Multiplier")
+    save(fig, "41_multiplier_by_volatility_stratum")
+
+    rolling_var = (records["actual_return"] < records["conformal_var_95"]).rolling(120).mean()
+    fig, ax = plt.subplots(figsize=(11, 4))
+    ax.plot(pd.to_datetime(records["date"]), rolling_var)
+    ax.axhline(0.05, color="black", ls="--")
+    ax.set(title="Rolling VaR 95% exceedance (120 records)", ylabel="Exceedance")
+    save(fig, "42_var_exceedance_rolling")
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    if len(convergence):
+        for column in ["probability_negative", "probability_mdd_3", "probability_mdd_5", "probability_mdd_7"]:
+            ax.plot(convergence["paths"], convergence[column], marker="o", label=column)
+    ax.legend(fontsize=7)
+    ax.set(title="Monte Carlo probability convergence", xlabel="Paths", ylabel="Probability")
+    save(fig, "43_mc_probability_convergence")
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    if len(convergence):
+        ax.plot(convergence["paths"], convergence["max_probability_mcse"], marker="o")
+    ax.set(title="MCSE theo số paths", xlabel="Paths", ylabel="Maximum probability MCSE")
+    save(fig, "44_mcse_by_paths")
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(sensitivity["transition_strength"], sensitivity["ess_ratio"], marker="o")
+    ax.axhline(0.20, color="red", ls="--")
+    ax.set(title="ESS theo proposal strength", xlabel="Transition tilt", ylabel="ESS/N")
+    save(fig, "45_ess_by_proposal_strength")
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.hist(log_weights, bins=70)
+    ax.set(title="Importance log-weight distribution", xlabel="log weight")
+    save(fig, "46_importance_weight_distribution")
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    view = efficiency[efficiency["method"].isin(["naive_monte_carlo", "importance_sampling"])]
+    ax.bar(view["method"], view["mcse_mdd_7"])
+    ax.set(title="Naive Monte Carlo versus importance sampling", ylabel="MCSE P(MDD<-7%)")
+    save(fig, "47_naive_vs_importance")
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.bar(efficiency["method"], efficiency["tail_events_generated_mdd_7"].fillna(0))
+    ax.tick_params(axis="x", rotation=25)
+    ax.set(title="Tail-event count theo phương pháp", ylabel="Generated MDD<-7% events")
+    save(fig, "48_tail_event_count")
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    outer_view = outer.nlargest(10, "standard_error").sort_values("standard_error")
+    ax.barh(outer_view["metric"], outer_view["standard_error"])
+    ax.set(title="Outer-bootstrap uncertainty decomposition", xlabel="Bootstrap standard error")
+    save(fig, "49_outer_bootstrap_uncertainty")
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    influence = jackknife.nlargest(15, "absolute_influence").sort_values("absolute_influence")
+    labels = influence["block_type"] + ":" + influence["block_label"] + ":" + influence["metric"]
+    ax.barh(labels, influence["absolute_influence"])
+    ax.set(title="Delete-block jackknife influence ranking")
+    save(fig, "50_delete_block_jackknife_influence")
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    h20_alpha = alpha[alpha["horizon"] == 20]
+    ax.errorbar(h20_alpha["alpha"], h20_alpha["rmse"], yerr=h20_alpha["rmse_standard_error"], marker="o")
+    selected = h20_alpha[h20_alpha["selected"]]
+    ax.scatter(selected["alpha"], selected["rmse"], color="red", zorder=3, label="Selected")
+    ax.legend()
+    ax.set(title="Validation alpha của baseline-gated center", xlabel="Alpha ML", ylabel="Validation RMSE")
+    save(fig, "51_validation_alpha_blend")
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.bar(ablation["stage"], ablation["coverage_95"])
+    ax.axhline(0.95, color="black", ls="--")
+    ax.set(title="Ablation A0-A9: 95% coverage", ylabel="Coverage")
+    save(fig, "52_advanced_ablation")
+
+    fig, ax = plt.subplots(figsize=(11, 4))
+    dates = pd.to_datetime(records["date"])
+    ax.plot(dates, records["actual_return"], label="Actual", lw=0.7)
+    ax.plot(dates, records["old_center"], label="Current model", lw=0.8)
+    ax.plot(dates, records["improved_center"], label="Improved center", lw=0.8)
+    ax.legend()
+    ax.set(title="Current and improved model on identical h=20 test periods", ylabel="Return")
+    save(fig, "53_current_vs_improved_same_test")
+    return names

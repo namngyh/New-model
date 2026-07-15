@@ -1,5 +1,6 @@
 project:
   seed: 55
+  pipeline_mode: experimental
   seeds: [11, 22, 33, 44, 55]
   data_path: data/raw/VNINDEX_Daily.csv
   output_root: .
@@ -22,14 +23,64 @@ random_forest:
   min_samples_leaf: 20
   max_features: sqrt
   max_samples: 0.8
+point_forecast:
+  mode: validation_gated_blend
+  alpha_grid: [0.0, 0.25, 0.50, 0.75, 1.0]
+  primary_metric: rmse
+  minimum_relative_improvement: 0.01
+  use_one_standard_error_rule: true
+conformal:
+  enabled: true
+  alpha_levels: [0.50, 0.20, 0.10, 0.05]
+  candidate_windows: [250, null]
+  stratification:
+    volatility_bins: 3
+    use_regime: true
+  minimum_stratum_size: 40
+  finite_sample_correction: true
+  horizon_label_delay: true
 simulation:
   paths: 3000
   horizon: 20
   block_length: 10
   student_weight: 0.35
   sample_paths: 100
+  stratified:
+    enabled: true
+    allocation: neyman
+    pilot_paths: 500
+    minimum_paths_per_regime: 100
+  importance_sampling:
+    enabled: true
+    paths: 5000
+    proposal_strengths: [0.10, 0.20]
+    shock_strength_ratio: 0.50
+    minimum_ess_ratio: 0.20
+  adaptive_stopping:
+    enabled: true
+    batch_size: 1000
+    minimum_paths: 3000
+    maximum_paths: 10000
+    probability_mcse_tolerance: 0.006
+    rare_probability_relative_mcse: 0.25
+    quantile_stability_tolerance: 0.003
+    consecutive_stable_batches: 2
+  variance_reduction_experiments:
+    antithetic_enabled: false
+    control_variate_enabled: false
 validation:
   folds: 2
   bootstrap_reps: 250
 jackknife:
   mode: quick
+outer_bootstrap:
+  enabled: true
+  mode: quick
+  replications_quick: 500
+  replications_full: 10
+  mean_block_length: 20
+  parallel_jobs: -1
+tail_head:
+  enabled: true
+  n_estimators: 100
+  minimum_precision: 0.25

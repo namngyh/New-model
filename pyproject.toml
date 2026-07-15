@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "black>=24"]
 
 [project.scripts]
 vnindex-model = "vnindex_model.cli:main"
@@ -47,3 +47,6 @@ target-version = "py310"
 select = ["E", "F", "I", "B", "UP"]
 ignore = ["E501"]
 
+[tool.black]
+line-length = 120
+target-version = ["py310"]

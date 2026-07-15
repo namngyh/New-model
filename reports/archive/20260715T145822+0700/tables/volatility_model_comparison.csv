@@ -1,0 +1,11 @@
+model,split,qlike,gaussian_95_coverage,finite,selected_on_validation
+historical_volatility,validation,-8.461644052617066,0.9386503067484663,True,True
+historical_volatility,test,-8.139663373451944,0.9334500875656743,True,True
+ewma_volatility,validation,-8.451931449161856,0.9491673970201577,True,False
+ewma_volatility,test,-8.134079563606788,0.9553415061295972,True,False
+GARCH_Gaussian,validation,-8.254030336831134,0.957931638913234,True,False
+GARCH_Gaussian,test,-7.910914723388535,0.9404553415061296,True,False
+GARCH_Student_t,validation,-8.244469108841635,0.9517966695880806,True,False
+GARCH_Student_t,test,-7.893044048885554,0.9325744308231173,True,False
+EGARCH_Student_t,validation,-8.246155383456966,0.950920245398773,True,False
+EGARCH_Student_t,test,-7.913801083248232,0.9395796847635727,True,False

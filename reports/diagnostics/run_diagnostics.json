@@ -98,7 +98,55 @@
     "60": "none"
   },
   "simulation_paths": 10000,
+  "adaptive_simulation_paths": 40000,
   "selected_block_length": 5,
+  "point_center_alpha_by_horizon": {
+    "1": 0.0,
+    "5": 0.0,
+    "10": 0.0,
+    "20": 0.0,
+    "40": 0.0,
+    "60": 0.0
+  },
+  "conformal_by_horizon": {
+    "1": {
+      "method": "global",
+      "window": null
+    },
+    "5": {
+      "method": "regime_stratified",
+      "window": null
+    },
+    "10": {
+      "method": "global",
+      "window": null
+    },
+    "20": {
+      "method": "regime_stratified",
+      "window": null
+    },
+    "40": {
+      "method": "regime_stratified",
+      "window": null
+    },
+    "60": {
+      "method": "volatility_stratified",
+      "window": 500
+    }
+  },
+  "importance_sampling": {
+    "acceptance_reason": "ESS gate passed; selected highest MDD-7 variance reduction",
+    "ess_ratio": 0.8023846901547683,
+    "variance_reduction_ratio_mdd_7": 1.382994451715616
+  },
+  "outer_bootstrap_mode": "quick_oos_record_stationary_blocks",
+  "tail_head": {
+    "selected_candidate": "regime_aware_weighting",
+    "production_enabled": false,
+    "reason": "tail head rejected by validation gates; existing multiclass model retained",
+    "test_tail_precision_at_locked_threshold": 0.20317460317460317,
+    "test_tail_recall_at_locked_threshold": 0.7032967032967034
+  },
   "selected_volatility_on_validation": "historical_volatility",
   "fallbacks": {
     "hmm_warnings": [],
@@ -112,12 +160,14 @@
       "40": [],
       "60": []
     },
-    "simulation_regime_pool_fallback_count": 0
+    "simulation_regime_pool_fallback_count": 0,
+    "jackknife_mode": "quick",
+    "outer_bootstrap_mode": "quick_oos_record_stationary_blocks"
   },
   "outputs": [
     "artifacts/forecasts/latest_forecast.csv",
     "artifacts/forecasts/latest_forecast_summary.json",
     "artifacts/forecasts/latest_monte_carlo_samples.npz"
   ],
-  "elapsed_seconds": 851.6371438499991
+  "elapsed_seconds": 828.5575675849977
 }

@@ -2,7 +2,7 @@
 
 Tác giả: **Nguyễn Hoài Nam**
 
-Pipeline nghiên cứu tái lập để dự báo riêng lợi suất, mức điểm, trạng thái Bull/Sideway/Bear/Stress và phân phối rủi ro VN-Index. Kiến trúc chính kết hợp Filtered HMM, EGARCH Student-t, soft-gated Random Forest, regime-conditioned block bootstrap, hybrid Monte Carlo và block jackknife.
+Pipeline nghiên cứu tái lập để dự báo lợi suất, mức điểm, trạng thái Bull/Sideway/Bear/Stress và phân phối rủi ro VN-Index. Kiến trúc giữ Filtered HMM, EGARCH Student-t và regime-aware Random Forest, đồng thời thêm validation-gated distribution center, sequential conformal, stratified/importance sampling, adaptive Monte Carlo, outer stationary bootstrap và delete-block jackknife.
 
 > Đây là nghiên cứu định lượng, không phải khuyến nghị đầu tư.
 
@@ -20,14 +20,16 @@ flowchart LR
   C --> E[EGARCH Student-t]
   D --> F[Regime-aware RF]
   E --> F
-  F --> G[Temporal calibration]
+  F --> G[Validation-gated center]
+  G --> Q[Sequential conformal]
   D --> H[Regime path]
   E --> I[Student-t và residual blocks]
-  G --> H
+  Q --> H
   H --> J[Hybrid Monte Carlo]
   I --> J
-  J --> K[VaR ES drawdown intervals]
-  K --> L[Block jackknife và reports]
+  J --> K[Stratified IS và adaptive stopping]
+  K --> L[VaR ES conformal intervals]
+  L --> M[Outer bootstrap và delete-block jackknife]
 ```
 
 Với horizon `h`, `R(t,h)=log(P(t+h)/P(t))` và `P_hat(t+h)=P(t) exp(R_hat(t,h))`. HMM chỉ xuất `P(S_t|F_t)` bằng forward recursion; không dùng smoothed posterior. Split purge bằng `target_end_date_h < boundary` và embargo bằng horizon lớn nhất.
@@ -48,25 +50,29 @@ Các lệnh độc lập: `validate-data`, `train`, `backtest`, `forecast`, `rep
 
 | horizon | model | rmse_return | directional_accuracy |
 | --- | --- | --- | --- |
-| 1 | random_walk_drift | 0.0122777086974705 | 0.5512073272273106 |
-| 5 | random_walk_drift | 0.0282305866688544 | 0.5747702589807853 |
-| 10 | random_walk_drift | 0.0399382005832367 | 0.5620805369127517 |
-| 20 | random_walk_drift | 0.0573303654593323 | 0.5939086294416244 |
-| 40 | random_walk_drift | 0.0817270993382497 | 0.6024096385542169 |
-| 60 | random_walk_drift | 0.098359190891612 | 0.6252189141856392 |
+| 1 | random_walk_drift | 0.012277708697470534 | 0.5512073272273106 |
+| 5 | random_walk_drift | 0.02823058666885448 | 0.5747702589807853 |
+| 10 | random_walk_drift | 0.03993820058323676 | 0.5620805369127517 |
+| 20 | random_walk_drift | 0.05733036545933233 | 0.5939086294416244 |
+| 40 | random_walk_drift | 0.08172709933824973 | 0.6024096385542169 |
+| 60 | random_walk_drift | 0.09835919089161207 | 0.6252189141856392 |
 
 
 Đây là point metrics; kết quả trạng thái, calibration, interval và tail risk nằm trong `reports/tables/`. Mô hình có RMSE tốt nhất không tự động có recall Bear/Stress hoặc VaR coverage tốt nhất. Kết luận superiority chỉ được chấp nhận khi DM/HAC và block-bootstrap CI hỗ trợ; xem báo cáo để biết kết luận của run này.
 
-Ở h=20, mô hình chính có RMSE **0.067470**, Bear/Stress recall **0.00%/0.00%**, trong khi **random_walk_drift** có RMSE **0.057330**. Interval 95% chỉ cover **86.29%**. Do đó run này **không đủ bằng chứng để kết luận mô hình chính tốt hơn baseline** và tail calibration chưa đạt nominal.
+Ở h=20, A0 RF có RMSE **0.067470**; gated distribution center khóa alpha ML **0.00** trên validation và đạt RMSE test **0.057330**. Đây là fallback bảo vệ, không phải bằng chứng ML vượt baseline. Sequential conformal chọn **regime_stratified**: coverage 95% đổi từ **86.29%** lên **95.26%**, width từ **0.2088** lên **0.2944**, VaR exceedance từ **13.45%** xuống **4.74%**. Run đạt **7/9** acceptance checks; nếu chưa đạt toàn bộ guardrail thiết yếu thì pipeline mới vẫn là experimental.
+
+## Trạng thái promotion
+
+Các artifacts và báo cáo hiện tại được sinh từ `configs/experimental.yaml`. Vì chỉ đạt 7/9 acceptance checks, `configs/default.yaml` tiếp tục giữ A0 làm baseline production; không có auto-promotion. `configs/full.yaml` chưa được chạy trong lần nghiệm thu này.
 
 ## Forecast 20 phiên mới nhất
 
 - Origin: 2026-07-13; close cuối: 1800.54.
-- Terminal mean/median: 1792.85 / 1792.80.
-- Xác suất tăng/giảm: 45.49% / 54.51%.
-- VaR 95% và ES 95%: -7.07% / -8.91%.
-- P(maximum drawdown vượt 5%): 26.07%.
+- Terminal mean/median: 1828.11 / 1826.41.
+- Xác suất tăng/giảm: 60.34% / 39.66%.
+- VaR 95% và ES 95%: -7.59% / -9.97%.
+- P(maximum drawdown vượt 5%): 35.03%.
 - Estimated trading dates dùng ngày làm việc gần đúng, chưa loại ngày nghỉ HOSE.
 
 ![Forecast mới nhất](reports/figures/36_latest_forecast.png)
@@ -83,10 +89,10 @@ Các lệnh độc lập: `validate-data`, `train`, `backtest`, `forecast`, `rep
 
 ## Cấu trúc và tái lập
 
-- `src/vnindex_model/`: module dữ liệu, target, split, HMM, EGARCH, RF, calibration, simulation, bootstrap, jackknife, baseline, evaluation và reporting.
-- `configs/`: quick/default/full với seed, paths và compute budget rõ ràng.
+- `src/vnindex_model/`: thêm `point_forecast.py`, `conformal.py`, `importance_sampling.py`, `tail_head.py`; simulation/bootstrap/jackknife được mở rộng.
+- `configs/`: `default.yaml` khóa A0; `quick.yaml`, `experimental.yaml`, `full.yaml` là các mức compute cho pipeline A1-A9.
 - `artifacts/`: model, metadata, latest forecast và NPZ samples.
-- `reports/`: CSV/Markdown, 36 hình và hai báo cáo tiếng Việt.
+- `reports/`: bảng CSV/Markdown, 53 hình và hai báo cáo tiếng Việt; baseline cũ nằm trong `reports/archive/`.
 - `tests/`: leakage, parser, split, filtered probability, simulation, metric và smoke tests.
 
 Để cập nhật, thay file trong `data/raw/` bằng OHLCV mới, cập nhật `project.data_path` nếu tên đổi và chạy lại `run-all`. Mọi số liệu trong README này được ghi lại từ pipeline; không chỉnh tay sau run.
