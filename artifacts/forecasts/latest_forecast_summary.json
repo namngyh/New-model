@@ -1,0 +1,39 @@
+{
+  "forecast_origin": "2026-07-13",
+  "last_observed_close": 1800.54,
+  "expected_terminal_close": 1792.8475906449057,
+  "median_terminal_close": 1792.8010132363434,
+  "expected_return": -0.004272279069109432,
+  "median_return": -0.004298147646626449,
+  "probability_positive_return": 0.4549,
+  "probability_negative_return": 0.5451,
+  "var_95": -0.07073576783776764,
+  "var_99": -0.10163701046809283,
+  "expected_shortfall_95": -0.08912099269318591,
+  "expected_shortfall_99": -0.11597063450718254,
+  "expected_maximum_drawdown": -0.03873272533893126,
+  "median_maximum_drawdown": -0.034497756487790354,
+  "maximum_drawdown_quantiles": {
+    "0.05": -0.07956624450999925,
+    "0.5": -0.034497756487790354,
+    "0.95": -0.012176372892651763
+  },
+  "drawdown_probabilities": {
+    "0.03": 0.5826,
+    "0.05": 0.2607,
+    "0.07": 0.0869,
+    "0.1": 0.0139
+  },
+  "simulation_method": "hybrid",
+  "number_of_paths": 10000,
+  "random_seed": 55,
+  "student_weight": 0.35,
+  "regime_pool_fallback_count": 0,
+  "model_uncertainty": {
+    "seed_terminal_return_std": 0.0009676296490965446,
+    "terminal_95_interval_width": 279.486902137955
+  },
+  "data_hash": "b9223de5500676ccd64fdb29edc27bf2c28bc04f424397dd3058e674737ea379",
+  "model_version": "1.0.0",
+  "trading_date_note": "Ngày làm việc gần đúng; chưa loại ngày nghỉ chính thức HOSE."
+}

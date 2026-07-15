@@ -1,0 +1,15 @@
+.repo_git/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.venv/
+venv/
+.env
+*.log
+data/processed/*.parquet
+data/interim/*
+!data/interim/.gitkeep
+reports/figures/*.pdf

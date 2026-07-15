@@ -1,0 +1,36 @@
+{
+  "source_file": "data/raw/VNINDEX_Daily.csv",
+  "rows_loaded": 6306,
+  "start_date": "2000-07-28",
+  "end_date": "2026-07-13",
+  "columns": [
+    "date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume"
+  ],
+  "duplicate_rows_removed": 1,
+  "duplicate_date_records": 2,
+  "malformed_rows": [],
+  "sha256": "b9223de5500676ccd64fdb29edc27bf2c28bc04f424397dd3058e674737ea379",
+  "missing_counts": {
+    "date": 0,
+    "open": 0,
+    "high": 0,
+    "low": 0,
+    "close": 0,
+    "volume": 0
+  },
+  "nonpositive_prices": {
+    "open": 0,
+    "high": 0,
+    "low": 0,
+    "close": 0
+  },
+  "negative_volume": 0,
+  "ohlc_constraint_violations": 42,
+  "calendar_gaps_over_10_days": 6,
+  "close_interpolation_applied": false
+}

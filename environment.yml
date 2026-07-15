@@ -1,0 +1,21 @@
+name: vnindex-model
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - statsmodels
+  - matplotlib
+  - pyyaml
+  - joblib
+  - openpyxl
+  - pip
+  - pip:
+      - arch>=7.0
+      - hmmlearn>=0.3
+      - pytest>=8.0
+      - ruff>=0.6
+

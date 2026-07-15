@@ -1,0 +1,280 @@
+{
+  "selected_states": 5,
+  "selected_seed": 55,
+  "converged": true,
+  "feature_names": [
+    "log_return",
+    "rolling_volatility_20",
+    "downside_volatility",
+    "cumulative_return_20",
+    "current_drawdown",
+    "volume_zscore"
+  ],
+  "transition_matrix": [
+    [
+      0.970392031183609,
+      9.242747089029685e-44,
+      0.02506680535369694,
+      0.004541163462694003,
+      1.03280964334647e-210
+    ],
+    [
+      3.054658943985093e-30,
+      0.9587388345672154,
+      0.02087118730878907,
+      0.0009377639683926947,
+      0.019452214155602703
+    ],
+    [
+      0.010328480798371233,
+      0.031457610491035425,
+      0.9582139087104881,
+      1.0524902801263982e-13,
+      1.8437262132417458e-46
+    ],
+    [
+      0.0070100123036452916,
+      7.139486914951433e-103,
+      1.580876648007563e-68,
+      0.9929899876963547,
+      0.0
+    ],
+    [
+      6.216274697740983e-76,
+      0.02187217229854822,
+      0.004312212149163445,
+      1.22047605087755e-259,
+      0.9738156155522883
+    ]
+  ],
+  "expected_duration": [
+    33.77469107054711,
+    24.23586414758507,
+    23.931408014967747,
+    142.65310197529735,
+    38.19070110267166
+  ],
+  "economic_labels": [
+    "Bear",
+    "Sideway",
+    "Sideway",
+    "Bull",
+    "Stress"
+  ],
+  "state_statistics_raw": [
+    {
+      "raw_state": 0,
+      "mean_return": 0.004385505701711463,
+      "volatility": 0.018260481788221445,
+      "mean_drawdown": -0.10492532534614725
+    },
+    {
+      "raw_state": 1,
+      "mean_return": -0.00029263048412622836,
+      "volatility": 0.01008784951727359,
+      "mean_drawdown": -0.5736961245002942
+    },
+    {
+      "raw_state": 2,
+      "mean_return": -0.0029280591985809887,
+      "volatility": 0.028623407493818084,
+      "mean_drawdown": -0.5473800411612088
+    },
+    {
+      "raw_state": 3,
+      "mean_return": 9.952568085693793e-05,
+      "volatility": 0.005721501334632878,
+      "mean_drawdown": -0.6169938917141687
+    },
+    {
+      "raw_state": 4,
+      "mean_return": 0.0008382317986921472,
+      "volatility": 0.016771923907307085,
+      "mean_drawdown": -0.5998257526902349
+    }
+  ],
+  "candidate_models": [
+    {
+      "states": 2,
+      "seed": 11,
+      "aic": 49835.79042721906,
+      "bic": 50016.23669436137,
+      "min_occupancy": 0.45723491991681925,
+      "converged": true,
+      "selection_score": 50016.23669436137
+    },
+    {
+      "states": 2,
+      "seed": 22,
+      "aic": 49835.79049638238,
+      "bic": 50016.23676352469,
+      "min_occupancy": 0.4571667039450301,
+      "converged": true,
+      "selection_score": 50016.23676352469
+    },
+    {
+      "states": 2,
+      "seed": 33,
+      "aic": 49835.7905047049,
+      "bic": 50016.23677184721,
+      "min_occupancy": 0.45716577294418836,
+      "converged": true,
+      "selection_score": 50016.23677184721
+    },
+    {
+      "states": 2,
+      "seed": 44,
+      "aic": 49835.790533403895,
+      "bic": 50016.236800546205,
+      "min_occupancy": 0.4571627169927996,
+      "converged": true,
+      "selection_score": 50016.236800546205
+    },
+    {
+      "states": 2,
+      "seed": 55,
+      "aic": 49835.79045461532,
+      "bic": 50016.23672175763,
+      "min_occupancy": 0.45717176825884837,
+      "converged": true,
+      "selection_score": 50016.23672175763
+    },
+    {
+      "states": 3,
+      "seed": 11,
+      "aic": 44830.16364326252,
+      "bic": 45122.61104173453,
+      "min_occupancy": 0.265042179891251,
+      "converged": true,
+      "selection_score": 45122.61104173453
+    },
+    {
+      "states": 3,
+      "seed": 22,
+      "aic": 46240.67219333358,
+      "bic": 46533.1195918056,
+      "min_occupancy": 0.13947028928940217,
+      "converged": true,
+      "selection_score": 46533.1195918056
+    },
+    {
+      "states": 3,
+      "seed": 33,
+      "aic": 45596.09443423948,
+      "bic": 45888.5418327115,
+      "min_occupancy": 0.3192806945051033,
+      "converged": true,
+      "selection_score": 45888.5418327115
+    },
+    {
+      "states": 3,
+      "seed": 44,
+      "aic": 46240.672142772215,
+      "bic": 46533.11954124423,
+      "min_occupancy": 0.1394721600921735,
+      "converged": true,
+      "selection_score": 46533.11954124423
+    },
+    {
+      "states": 3,
+      "seed": 55,
+      "aic": 45648.58688891202,
+      "bic": 45941.034287384035,
+      "min_occupancy": 0.1755607037499493,
+      "converged": true,
+      "selection_score": 45941.034287384035
+    },
+    {
+      "states": 4,
+      "seed": 11,
+      "aic": 41261.38726887697,
+      "bic": 41678.28036882644,
+      "min_occupancy": 0.1547979461110437,
+      "converged": true,
+      "selection_score": 41678.28036882644
+    },
+    {
+      "states": 4,
+      "seed": 22,
+      "aic": 41959.37405856635,
+      "bic": 42376.26715851582,
+      "min_occupancy": 0.11858384565285045,
+      "converged": true,
+      "selection_score": 42376.26715851582
+    },
+    {
+      "states": 4,
+      "seed": 33,
+      "aic": 44412.307407095235,
+      "bic": 44829.200507044705,
+      "min_occupancy": 0.06018265275631698,
+      "converged": true,
+      "selection_score": 44829.200507044705
+    },
+    {
+      "states": 4,
+      "seed": 44,
+      "aic": 41261.38730012475,
+      "bic": 41678.28040007422,
+      "min_occupancy": 0.1547973013630446,
+      "converged": true,
+      "selection_score": 41678.28040007422
+    },
+    {
+      "states": 4,
+      "seed": 55,
+      "aic": 41261.38688126053,
+      "bic": 41678.27998121,
+      "min_occupancy": 0.1547952898236118,
+      "converged": true,
+      "selection_score": 41678.27998121
+    },
+    {
+      "states": 5,
+      "seed": 11,
+      "aic": 39223.42846605629,
+      "bic": 39777.211837630966,
+      "min_occupancy": 0.1427909721180016,
+      "converged": true,
+      "selection_score": 39777.211837630966
+    },
+    {
+      "states": 5,
+      "seed": 22,
+      "aic": 37997.045027109314,
+      "bic": 38550.82839868399,
+      "min_occupancy": 0.11712716621900642,
+      "converged": true,
+      "selection_score": 38550.82839868399
+    },
+    {
+      "states": 5,
+      "seed": 33,
+      "aic": 38016.341055906676,
+      "bic": 38570.12442748135,
+      "min_occupancy": 0.11709297983119774,
+      "converged": true,
+      "selection_score": 38570.12442748135
+    },
+    {
+      "states": 5,
+      "seed": 44,
+      "aic": 38081.39958641376,
+      "bic": 38635.182957988436,
+      "min_occupancy": 0.1532868577498414,
+      "converged": true,
+      "selection_score": 38635.182957988436
+    },
+    {
+      "states": 5,
+      "seed": 55,
+      "aic": 37997.04473248387,
+      "bic": 38550.82810405854,
+      "min_occupancy": 0.11712993074827083,
+      "converged": true,
+      "selection_score": 38550.82810405854
+    }
+  ],
+  "warnings": [],
+  "probability_type": "forward-filtered P(S_t | F_t); not smoothed"
+}

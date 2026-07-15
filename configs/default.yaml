@@ -1,0 +1,35 @@
+project:
+  seed: 55
+  seeds: [11, 22, 33, 44, 55]
+  data_path: data/raw/VNINDEX_Daily.csv
+  output_root: .
+data:
+  train_fraction: 0.60
+  validation_fraction: 0.20
+  horizons: [1, 5, 10, 20, 40, 60]
+  embargo: 60
+features:
+  correlation_threshold: 0.995
+hmm:
+  candidate_states: [2, 3, 4, 5]
+  seeds: [11, 22, 33, 44, 55]
+  n_iter: 160
+egarch:
+  enabled: true
+random_forest:
+  n_estimators: 400
+  max_depth: 7
+  min_samples_leaf: 20
+  max_features: sqrt
+  max_samples: 0.8
+simulation:
+  paths: 10000
+  horizon: 20
+  block_length: 10
+  student_weight: 0.35
+  sample_paths: 150
+validation:
+  folds: 2
+  bootstrap_reps: 1000
+jackknife:
+  mode: quick
