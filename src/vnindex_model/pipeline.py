@@ -283,6 +283,14 @@ def _append_drawdown_reports(context: dict, root: Path) -> None:
     mc = context["mc"]
     importance = context["importance"]
     selected_is = importance[importance["selected"]]
+    scenarios = context["scenarios"].set_index("scenario")
+    conditional = context["conditional"]
+    regime_coverage = conditional[
+        (conditional["horizon"] == 20)
+        & (conditional["anchor_mode"] == "origin_peak")
+        & (conditional["level"] == 0.95)
+        & (conditional["stratum_type"] == "regime")
+    ]
     breach = {
         threshold: origin["first_passage"][str(threshold)]["probability_breach_by_horizon"]
         for threshold in (0.03, 0.05, 0.07, 0.10)
@@ -337,9 +345,68 @@ Stress scenario không phải xác suất dự báo. Importance sampling giảm 
         encoding="utf-8",
     )
     readme_path = root / "README.md"
+    baseline_scenario = scenarios.loc["baseline_hybrid"]
+    bear_scenario = scenarios.loc["bear_conditioned"]
+    volatility_two = scenarios.loc["volatility_plus_2_sigma"]
+    crisis_scenario = scenarios.loc["historical_crisis_blocks"]
+    accepted_is = selected_is[selected_is["accepted"]]
+    regime_coverage_text = ", ".join(
+        f"state {int(row.stratum)}: {row.conditional_coverage:.2%} (n={int(row.observations)})"
+        for row in regime_coverage.itertuples()
+    )
     readme_path.write_text(
-        readme_path.read_text(encoding="utf-8")
-        + f"\n\n## Calibrated drawdown forecast\n\nHai anchor `origin_peak` và `historical_peak`, MDaR/CED, first passage, recovery censoring, probability CI và direct drawdown conformal được sinh từ pipeline. Latest origin-peak MDaR95 là **{origin['mdar_95']:.2%}**; xem `artifacts/forecasts/latest_drawdown_*` và hình 54–70. Module vẫn experimental trừ khi toàn bộ drawdown acceptance checks đạt.\n",
+        readme_path.read_text(encoding="utf-8") + f"""
+
+## Calibrated drawdown forecast
+
+Hai anchor `origin_peak` và `historical_peak`, MDaR/CED, first passage, recovery censoring, probability CI và direct drawdown conformal được sinh từ pipeline. Drawdown return giữ dấu âm để tương thích; các biểu đồ dưới đây dùng `drawdown_severity=-drawdown_return>=0`. Module đạt **{int(acceptance['passed'].sum())}/{len(acceptance)}** acceptance checks và vẫn experimental.
+
+### Fan chart theo hai drawdown anchor
+
+![Origin-peak drawdown fan chart](reports/figures/54_drawdown_fan_chart_origin_peak.png)
+
+Origin-peak reset đỉnh tại forecast origin. Median severity cuối horizon là **{origin['median_ending_drawdown_severity']:.2%}**, trong khi expected maximum severity trong đường đi là **{origin['expected_maximum_drawdown_severity']:.2%}**. Chênh lệch này cho thấy terminal return dương vẫn có thể đi qua một nhịp giảm đáng kể trước khi hồi phục.
+
+![Historical-peak drawdown fan chart](reports/figures/55_drawdown_fan_chart_historical_peak.png)
+
+Historical-peak không reset drawdown. VN-Index đang thấp hơn historical peak khoảng **{-context['current_historical_drawdown']:.2%}**, nên median ending severity là **{historical['median_ending_drawdown_severity']:.2%}** và historical-anchor MDaR95 lên **{historical['mdar_95']:.2%}**. Hai fan chart trả lời hai câu hỏi khác nhau và không được thay thế cho nhau.
+
+### First passage và MDaR/CED
+
+![Drawdown breach probability term structure](reports/figures/57_drawdown_breach_probability_term_structure.png)
+
+Xác suất tích lũy breach 3/5/7/10% đến phiên 20 lần lượt là **{breach[0.03]:.2%}/{breach[0.05]:.2%}/{breach[0.07]:.2%}/{breach[0.10]:.2%}**. Các đường không giảm vì một path đã chạm ngưỡng vẫn được tính là đã breach ở mọi bước sau; đây không phải xác suất drawdown tức thời tại từng phiên.
+
+![MDaR and CED term structure](reports/figures/59_mdar_ced_term_structure.png)
+
+Origin-peak MDaR90/95/99 là **{origin['mdar_90']:.2%}/{origin['mdar_95']:.2%}/{origin['mdar_99']:.2%}**; CED90/95/99 là **{origin['ced_90']:.2%}/{origin['ced_95']:.2%}/{origin['ced_99']:.2%}**. MDaR là quantile của maximum drawdown severity; CED là trung bình phía xấu hơn quantile đó, không phải VaR/ES của terminal return.
+
+### Recovery và direct drawdown calibration
+
+![Recovery probability curve](reports/figures/60_recovery_probability_curve.png)
+
+Xác suất quay lại historical peak trong 20 phiên là **{recovery['probability_recovery_by_horizon']:.2%}**. Các path chưa hồi phục được giữ right-censored; median recovery time không được tính bằng cách ép chúng về ngày 20.
+
+![Direct drawdown upper-bound coverage](reports/figures/63_drawdown_upper_bound_coverage.png)
+
+Ở h=20, direct conformal đạt coverage MDaR95 **{context['coverage_95']:.2%}** và MDaR99 **{context['coverage_99']:.2%}**. Phương pháp được khóa trên validation; test chỉ đánh giá. Exceedance vẫn phụ thuộc mạnh do các horizon chồng lấn, vì vậy aggregate coverage tốt không đồng nghĩa các lỗi độc lập theo thời gian.
+
+![Conditional coverage by regime](reports/figures/70_drawdown_calibration_by_regime.png)
+
+Conditional coverage 95% theo filtered regime là {regime_coverage_text}. Nhóm nhỏ có coverage 100% không nên được xem là calibration hoàn hảo; sample size thấp làm ước lượng kém ổn định và pipeline fallback về global khi validation stratum không đủ mẫu.
+
+### Rare-event efficiency và stress scenarios
+
+![Importance sampling efficiency](reports/figures/67_drawdown_importance_sampling_efficiency.png)
+
+Các proposal đạt gate ở MDD 7/10/15% với variance-reduction ratio từ **{accepted_is['variance_reduction_ratio'].min():.2f}x** đến **{accepted_is['variance_reduction_ratio'].max():.2f}x** và ESS/N tối thiểu **{accepted_is['ess_ratio'].min():.2%}**. Proposal MDD 5% chỉ đạt **{selected_is.loc[selected_is['threshold'] == 0.05, 'variance_reduction_ratio'].iloc[0]:.2f}x**, dưới gate 1.30x, nên bị từ chối. Importance sampling giảm numerical variance; nó không làm drawdown dễ dự báo hơn.
+
+![Scenario drawdown risk cone](reports/figures/68_drawdown_scenario_risk_cone.png)
+
+Baseline MDaR95/CED95 là **{baseline_scenario['mdar_95']:.2%}/{baseline_scenario['ced_95']:.2%}**. Bear-conditioned tăng lên **{bear_scenario['mdar_95']:.2%}/{bear_scenario['ced_95']:.2%}**; volatility +2σ tăng mạnh tới **{volatility_two['mdar_95']:.2%}/{volatility_two['ced_95']:.2%}**. Historical-crisis blocks cho MDaR95 **{crisis_scenario['mdar_95']:.2%}** và recovery **{crisis_scenario['probability_recovery']:.2%}**. Stress-conditioned hiện trùng baseline vì không đủ path khởi đầu Stress và engine fallback; đây là giới hạn mẫu, không phải bằng chứng Stress vô hại. Scenario là conditional what-if, không phải xác suất dự báo.
+
+Các bảng chi tiết nằm trong `reports/tables/drawdown_*.csv`; artifacts mới nhất nằm trong `artifacts/forecasts/latest_drawdown_*`.
+""",
         encoding="utf-8",
     )
 
@@ -859,6 +926,8 @@ def _run_drawdown_layer(
         "mc": ordinary_mc,
         "importance": drawdown_importance,
         "probability": probability_calibration,
+        "scenarios": scenario_table,
+        "conditional": conditional_coverage,
     }
 
 
@@ -945,22 +1014,34 @@ Các artifacts và báo cáo hiện tại được sinh từ `configs/experiment
 
 ![Forecast mới nhất](reports/figures/36_latest_forecast.png)
 
+Biểu đồ tóm tắt đặt dự báo trung vị cuối horizon **{summary["median_terminal_close"]:.2f}** bên cạnh xác suất tăng **{summary["probability_positive_return"]:.2%}**. Đây là phân phối có điều kiện từ thông tin tại origin, không phải target giá đơn điểm.
+
 ![Fan chart](reports/figures/25_fan_chart.png)
+
+Fan chart cho thấy khoảng bất định mở rộng theo horizon; độ rộng interval 95% tại terminal là **{summary["model_uncertainty"]["terminal_95_interval_width"]:.2f} điểm**. Dải rộng phản ánh cả process noise, regime/volatility và model uncertainty, nên không nên chỉ đọc đường median.
 
 ![Monte Carlo paths](reports/figures/24_monte_carlo_paths.png)
 
+Hình chỉ hiển thị một mẫu nhỏ trong **{summary["number_of_paths"]:,}** paths để tránh rối hình. Mỗi path là một kịch bản tương thích với giả định mô hình; không path nào là quỹ đạo “được chọn”.
+
 ![Filtered HMM regimes](reports/figures/06_hmm_regimes.png)
+
+Regime probability là filtered `P(S_t|F_t)` nên chỉ dùng dữ liệu sẵn có tại thời điểm t; không dùng smoothed state nhìn về tương lai. State là trạng thái thống kê ẩn, không phải nhãn thị trường chắc chắn.
 
 ![Calibration](reports/figures/16_reliability_diagram.png)
 
+Reliability diagram so xác suất dự báo với tỷ lệ quan sát trong từng bin; khoảng cách với đường chéo là calibration gap. Biểu đồ này không thay thế backtest coverage của return interval hay direct drawdown conformal.
+
 ![Drawdown distribution](reports/figures/29_maximum_drawdown_distribution.png)
+
+Maximum drawdown trong 20 phiên có median **{-summary["median_maximum_drawdown"]:.2%}**, mean **{-summary["expected_maximum_drawdown"]:.2%}** và phía xấu 95% ở **{-summary["maximum_drawdown_quantiles"]["0.05"]:.2%}**. Đây là tổn thất peak-to-trough trong đường đi, vì vậy có thể lớn ngay cả khi terminal return dương.
 
 ## Cấu trúc và tái lập
 
 - `src/vnindex_model/`: thêm `point_forecast.py`, `conformal.py`, `importance_sampling.py`, `tail_head.py`; simulation/bootstrap/jackknife được mở rộng.
 - `configs/`: `default.yaml` khóa A0; `quick.yaml`, `experimental.yaml`, `full.yaml` là các mức compute cho pipeline A1-A9.
 - `artifacts/`: model, metadata, latest forecast và NPZ samples.
-- `reports/`: bảng CSV/Markdown, 53 hình và hai báo cáo tiếng Việt; baseline cũ nằm trong `reports/archive/`.
+- `reports/`: bảng CSV/Markdown, 70 hình và hai báo cáo tiếng Việt; baseline cũ nằm trong `reports/archive/`.
 - `tests/`: leakage, parser, split, filtered probability, simulation, metric và smoke tests.
 
 Để cập nhật, thay file trong `data/raw/` bằng OHLCV mới, cập nhật `project.data_path` nếu tên đổi và chạy lại `run-all`. Mọi số liệu trong README này được ghi lại từ pipeline; không chỉnh tay sau run.
@@ -2484,6 +2565,10 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
     write_reports(report_context, root)
     _readme({**report_context, "model_comparison": model_comparison}, root)
     if drawdown_layer is not None:
+        h20_origin_intervals = drawdown_layer["tables"]["drawdown_interval_metrics"]
+        h20_origin_intervals = h20_origin_intervals[
+            (h20_origin_intervals["horizon"] == 20) & (h20_origin_intervals["anchor_mode"] == "origin_peak")
+        ].set_index("level")
         _append_drawdown_reports(
             {
                 "origin_summary": drawdown_layer["origin"].summary,
@@ -2493,6 +2578,11 @@ def run_pipeline(config_path: str | Path = "configs/default.yaml") -> dict:
                 "recovery": drawdown_layer["recovery"],
                 "mc": drawdown_layer["mc"],
                 "importance": drawdown_layer["importance"],
+                "scenarios": drawdown_layer["scenarios"],
+                "conditional": drawdown_layer["conditional"],
+                "current_historical_drawdown": drawdown_layer["summary"]["current_historical_drawdown"],
+                "coverage_95": float(h20_origin_intervals.loc[0.95, "upper_bound_coverage"]),
+                "coverage_99": float(h20_origin_intervals.loc[0.99, "upper_bound_coverage"]),
                 "figure_names": drawdown_figure_names,
             },
             root,
